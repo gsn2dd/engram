@@ -12,6 +12,12 @@ export DB_NAME="${POSTGRES_DB}" DB_USER="${POSTGRES_USER}" DB_PASS="${POSTGRES_P
 python3 mcp_server.py &
 APP_PID=$!
 
+# Optionally seed a small demo brain on first boot, so "try it" isn't an empty
+# box. Idempotent + uses your keys. Set ENGRAM_SEED_DEMO=0 for a clean brain.
+if [ "${ENGRAM_SEED_DEMO:-0}" = "1" ] || [ "${ENGRAM_SEED_DEMO:-0}" = "true" ]; then
+  ( sleep 3; python3 seed_demo.py 2>&1 | sed 's/^/[demo] /' ) &
+fi
+
 # Self-organising loop: periodically compact raw co-recall edges into the path
 # graph (which spreading-activation reads) and decay/prune unused nodes + edges.
 # This is what makes recall strengthen with use and fade with neglect over time.

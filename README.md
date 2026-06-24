@@ -118,7 +118,15 @@ docker compose up
 ```
 
 That's it — Postgres initialises with the schema on first boot, and the brain is
-live inside the container.
+live inside the container. On first boot it also seeds a small **demo brain** (a
+fictional startup's notes) so recall works immediately — try:
+
+```bash
+docker compose exec engram python3 cli/pm.py recall "how do we keep users logged in"
+# -> surfaces the JWT auth decision, with no words in common
+```
+
+Set `ENGRAM_SEED_DEMO=0` for a clean, empty brain in a real deployment.
 
 Talk to it with the CLI / Python library against the running container:
 

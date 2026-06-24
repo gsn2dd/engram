@@ -10,6 +10,9 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Boots with a small demo brain so "try it" isn't empty. Set to "0" for a
+      # clean brain in real deployments.
+      ENGRAM_SEED_DEMO: "${ENGRAM_SEED_DEMO:-1}"
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
