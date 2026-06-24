@@ -1,4 +1,4 @@
--- WTG Path Memory — database schema
+-- Engram — database schema
 -- Requires PostgreSQL 14+ with pgvector extension
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -126,7 +126,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS seeds_entity_version_idx ON seeds (entity, ver
 CREATE INDEX IF NOT EXISTS seeds_entity_recent_idx ON seeds (entity, compiled_at DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────
--- Best-of-both additions — features that grew in the mindspace lineage:
+-- Additional features:
 --   project scoping · distillation (superseded) · fan-out perspectives
 -- Written as idempotent migrations so they apply to fresh and existing installs.
 -- ─────────────────────────────────────────────────────────────────────────

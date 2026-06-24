@@ -10,7 +10,7 @@ Usage:
 """
 import sys, os, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from path_memory import Memory, recall as _recall, run_decay, needs_retensing_sweep
+from path_memory import Memory, recall as _recall, run_decay, consolidate, needs_retensing_sweep
 
 
 def cmd_save(args):
@@ -36,6 +36,13 @@ def cmd_recall(args):
 def cmd_decay(args):
     decayed, archived = run_decay()
     print(f"Decayed: {decayed}  Archived: {archived}")
+
+
+def cmd_consolidate(args):
+    """The self-organising pass: compact co-recall edges into the path graph,
+    decay/prune unused nodes and edges. Run periodically (the container loops it)."""
+    summary = consolidate()
+    print("Consolidated: " + "  ".join(f"{k}={v}" for k, v in summary.items()))
 
 
 def cmd_paths(args):
@@ -70,6 +77,7 @@ s.add_argument("--anchor-start", help="YYYY-MM-DD — set if this claim's tense 
 s.add_argument("--anchor-end", help="YYYY-MM-DD — defaults to --anchor-start for single-day events")
 r  = sub.add_parser("recall");   r.add_argument("query"); r.add_argument("--person"); r.add_argument("--noun"); r.add_argument("--limit", type=int, default=5)
 sub.add_parser("decay")
+sub.add_parser("consolidate")
 pa = sub.add_parser("paths");    pa.add_argument("entity")
 ts = sub.add_parser("temporal-sweep"); ts.add_argument("--limit", type=int, default=50)
 
@@ -77,7 +85,7 @@ def main():
     args = p.parse_args()
     {
         "save": cmd_save, "recall": cmd_recall, "decay": cmd_decay, "paths": cmd_paths,
-        "temporal-sweep": cmd_temporal_sweep,
+        "consolidate": cmd_consolidate, "temporal-sweep": cmd_temporal_sweep,
     }.get(args.cmd, lambda _: p.print_help())(args)
 
 

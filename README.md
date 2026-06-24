@@ -36,7 +36,50 @@ Together they form a knowledge system that learns what matters by watching what 
 
 > **A note on cost:** generating the fan-out perspectives means each `Memory.save()` makes a few small LLM calls (the lenses + classification). That's on by default because it's what makes recall feel uncanny — but for bulk imports or cost-sensitive use, pass `perspectives=False` to save the literal memory only.
 
-The attach point is an **MCP endpoint**: spin up the container and point any MCP-capable agent (OpenClaw, Claude Desktop, your own) at `http://<host>:8080/mcp` — it has a brain, no glue code. The server exposes four tools — `remember`, `recall`, `recall_with_associations`, `supersede` — backed by everything above. Run one brain per agent, or share one across a fleet. *(You can also drive it directly via the Python API / CLI, shown below.)*
+The attach point is an **MCP endpoint** (SSE transport, for the widest client compatibility): spin up the container and point any MCP-capable agent (OpenClaw, Claude Desktop, your own) at `http://<host>:8080/sse` — it has a brain, no glue code. The server exposes six tools — `remember`, `recall`, `recall_with_associations`, `supersede`, `remember_json` (fold a whole JSON blob into recallable memories, one per leaf), and `recall_json` (reassemble a folded blob back into one object) — backed by everything above. Run one brain per agent, or share one across a fleet. *(You can also drive it directly via the Python API / CLI, shown below.)*
+
+### Making your agent actually *use* it
+
+Attaching the endpoint makes the tools *available* — but a model won't reflexively reach for memory unless you tell it to. **This is the single most important integration step:** add a short directive to your agent's **system prompt / persona**, so recall-and-remember becomes a habit rather than something it only does when asked:
+
+> *You have a persistent memory (engram). Before you answer, `recall` relevant context. When you learn something worth keeping — a fact, a decision, a preference — `remember` it. Scope memories to the current project where that helps.*
+
+That one instruction is the difference between *"the brain is plugged in"* and *"the agent thinks with it."* The tool descriptions steer **how** to call each tool; this steers **when**. (In OpenClaw, add it to the agent's persona; in Claude Desktop, to the system prompt; in your own agent, to its system message.)
+
+**A complete, ready-to-paste version lives in [`AGENT_PROMPT.md`](AGENT_PROMPT.md)** — copy it straight into your agent's persona and adjust the voice to taste. It covers all five tools (recall-first, remember-what-matters, project scoping, JSON folding, supersede).
+
+### Handing engram JSON — and getting it back
+
+You can give engram JSON and read it back, two ways depending on what you want:
+
+- **Query its *contents*.** `remember_json` folds a JSON blob into one memory per
+  leaf, keyed by its path (`business.hours.sat`). Then `recall` finds the right
+  pieces by meaning — *"what are the weekend hours?"* surfaces the `sat` leaf
+  even with no shared keywords. Use this when you want to *ask questions* about
+  the data.
+
+  ```bash
+  # agent side (MCP): remember_json('{"business":{"hours":{"sat":"10am-4pm"}}}', project="acme")
+  # query a piece:    recall("weekend opening time", project="acme")  ->  business.hours.sat: 10am-4pm
+  # get it all back:  recall_json(project="acme")  ->  {"business": {"hours": {"sat": "10am-4pm"}}}
+  ```
+
+  `recall_json` is the inverse of `remember_json` — it gathers the folded leaves
+  for a scope and **reassembles the whole object, with types intact** (strings,
+  numbers, bools, null, nested lists). So folding is symmetric: blob in, blob out.
+
+- **Round-trip the *whole blob* without folding.** If you don't need the contents
+  searchable piece-by-piece, just store the JSON as a memory body and `recall`
+  hands it back intact:
+
+  ```bash
+  # remember(subject="customer 4821 record", body="<the JSON string>", project="acme")
+  # recall("customer 4821")  ->  body is the JSON, returned whole
+  ```
+
+The first makes the data **searchable by meaning** *and* reassemblable as a
+whole; the second is the quick path when you only ever want the object back as a
+unit. Use whichever the task needs.
 
 ---
 
@@ -60,8 +103,10 @@ the container never ships with keys.
 
 ```bash
 cp .env.example .env    # add your OPENAI_API_KEY and ANTHROPIC_API_KEY
-docker run --env-file .env ghcr.io/gsn2dd/engram
+docker run -p 8080:8080 -v engram_pgdata:/var/lib/postgresql/data --env-file .env ghcr.io/gsn2dd/engram
 ```
+
+`-p 8080:8080` publishes the MCP endpoint (attach agents at `http://localhost:8080/sse`); `-v engram_pgdata:…` keeps the brain across restarts.
 
 **Or build from source** (for development / contributing):
 
@@ -186,6 +231,8 @@ WHERE weight < 0.01
 ```
 
 The system forgets what is not needed. The most-travelled paths become highways. The rest become dirt tracks, and eventually disappear.
+
+**This runs on its own.** The container executes a **consolidation pass on a loop** (default hourly — set `ENGRAM_CONSOLIDATE_INTERVAL` in seconds): it compacts raw co-recall edges into the path graph that spreading-activation reads, decays unused node and edge weights, and archives what's faded. Trigger it by hand any time with `pm consolidate`. Weights strengthen on every recall regardless, but *this* pass is what lets the graph reorganise itself over time — so it ships on by default.
 
 ### Temporal anchoring — a different axis from decay
 

@@ -1,0 +1,14 @@
+# Never bake these into the image (COPY . . would otherwise include them)
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.DS_Store

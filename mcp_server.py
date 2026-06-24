@@ -4,12 +4,13 @@ Engram MCP server — exposes the brain as MCP tools so any MCP-capable agent
 (OpenClaw, Claude Desktop, your own) can attach to it as persistent memory.
 
 It talks to a running engram database via the usual DB_* env vars, and serves
-over network (streamable-HTTP) transport so an agent on another machine can
-attach by pointing at:
+over the network (SSE transport, for the widest client compatibility) so an
+agent on another machine can attach by pointing at:
 
-    http://<host>:<port>/mcp        (default port 8080)
+    http://<host>:<port>/sse        (default port 8080)
 
-Tools exposed: remember, recall, recall_with_associations, supersede.
+Tools exposed: remember, remember_json, recall_json, recall,
+recall_with_associations, supersede.
 """
 import os
 
@@ -38,6 +39,26 @@ def remember(subject: str, body: str, person: str = "", project: str = "") -> di
     mid = Memory.save(subject=subject, body=body,
                       person=person or None, project=project or None)
     return {"id": mid}
+
+
+@mcp.tool()
+def remember_json(json_text: str, person: str = "", project: str = "") -> dict:
+    """Attach a whole JSON string to the brain. Each leaf value is folded into a
+    recallable memory keyed by its dotted path (e.g. "business.hours.mon"), so
+    you can later ask the brain about the JSON's contents in natural language.
+    Returns the ids created and the count."""
+    from path_memory.fold import fold_json
+    ids = fold_json(json_text, person=person or None, project=project or None)
+    return {"ids": ids, "count": len(ids)}
+
+
+@mcp.tool()
+def recall_json(person: str = "", project: str = "") -> dict:
+    """Reassemble JSON previously stored via remember_json back into one whole
+    object, scoped by project and/or person. The inverse of remember_json — fold
+    a blob in, get the whole structure back out with types intact."""
+    from path_memory.fold import recall_json as _recall_json
+    return {"json": _recall_json(person=person or None, project=project or None)}
 
 
 @mcp.tool()
@@ -72,4 +93,6 @@ def supersede(old_id: int, new_id: int) -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    # SSE transport — widest client compatibility (works with OpenClaw's gateway
+    # and embedded modes, and older MCP clients). Serves /sse + /messages.
+    mcp.run(transport="sse")

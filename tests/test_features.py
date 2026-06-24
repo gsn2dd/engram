@@ -1,6 +1,6 @@
 """
-Tests for the best-of-both features ported from the mindspace lineage:
-fan-out perspectives, project scoping, and distillation (supersede).
+Tests for the higher-level features:
+fan-out perspectives, project scoping, distillation (supersede), and JSON fold.
 
 These exercise Memory.save() and recall(), which need OPENAI_API_KEY (query +
 content embeddings) and ANTHROPIC_API_KEY (lens generation + classification),
@@ -74,6 +74,25 @@ class TestBestOfBoth(unittest.TestCase):
                                           person=self.ENT, project="alpha", limit=5)}
         if old in res:
             self.assertEqual(res[old]["superseded_by"], new)
+
+    def test_json_fold_is_recallable(self):
+        import json
+        from path_memory.fold import fold_json
+        blob = {"shop": {"name": "Cyc Rentals", "hours": {"sat": "10am-4pm", "sun": "closed"}}}
+        ids = fold_json(json.dumps(blob), person=self.ENT, project="alpha")
+        self.assertEqual(len(ids), 3, "each JSON leaf should become exactly one memory")
+        hits = recall("weekend opening time", person=self.ENT, project="alpha")
+        self.assertTrue(any("sat" in (r["subject"] or "") for r in hits),
+                        "a folded JSON leaf should be recallable by meaning, not just keyword")
+
+    def test_json_fold_roundtrips(self):
+        import json
+        from path_memory.fold import fold_json, recall_json
+        blob = {"shop": {"name": "Cyc", "open": True, "tables": 4,
+                         "days": ["sat", "sun"]}}
+        fold_json(json.dumps(blob), person=self.ENT, project="roundtrip")
+        got = recall_json(person=self.ENT, project="roundtrip")
+        self.assertEqual(got, blob, "folded JSON must reassemble to the original, types intact")
 
 
 if __name__ == "__main__":
