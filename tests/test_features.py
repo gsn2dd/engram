@@ -94,6 +94,20 @@ class TestBestOfBoth(unittest.TestCase):
         got = recall_json(person=self.ENT, project="roundtrip")
         self.assertEqual(got, blob, "folded JSON must reassemble to the original, types intact")
 
+    def test_creativity_injects_serendipity(self):
+        # need more than `limit` candidates for near-misses to draw from
+        for i in range(10):
+            Memory.save(f"alpha note {i}", f"A note about subtopic {i} within the alpha workstream.",
+                        person=self.ENT, project="alpha", perspectives=False)
+        plain = recall("subtopic", person=self.ENT, project="alpha", limit=4, creativity=0.0)
+        self.assertTrue(plain and all(not r.get("serendipity") for r in plain),
+                        "creativity=0 must return only precise matches")
+        creative = recall("subtopic", person=self.ENT, project="alpha", limit=4, creativity=0.75)
+        self.assertTrue(any(r.get("serendipity") for r in creative),
+                        "high creativity should inject at least one near-miss memory")
+        self.assertTrue(any(not r.get("serendipity") for r in creative),
+                        "creativity must still keep precise results (incl. the top hit)")
+
 
 if __name__ == "__main__":
     unittest.main()

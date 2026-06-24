@@ -62,13 +62,20 @@ def recall_json(person: str = "", project: str = "") -> dict:
 
 
 @mcp.tool()
-def recall(query: str, person: str = "", project: str = "", limit: int = 5) -> list:
+def recall(query: str, person: str = "", project: str = "", limit: int = 5,
+           creativity: float = 0.0) -> list:
     """Recall memories by meaning, not keywords. Returns the best matches,
     strongest first. Optional person/project narrow the search. Every recall
-    quietly strengthens the paths it travels."""
-    rows = _recall(query, person=person or None, project=project or None, limit=limit)
+    quietly strengthens the paths it travels.
+
+    creativity (0..1): raise it to blend in 'near-miss' memories — related but
+    not the obvious answer — to spark connections the literal query would miss.
+    Those picks are flagged serendipity=true; treat them as prompts, not facts."""
+    rows = _recall(query, person=person or None, project=project or None,
+                   limit=limit, creativity=creativity)
     return [{"id": r["id"], "subject": r["subject"], "body": r["body"],
-             "person": r["person"], "score": r["score"]} for r in rows]
+             "person": r["person"], "score": r["score"],
+             "serendipity": r.get("serendipity", False)} for r in rows]
 
 
 @mcp.tool()

@@ -31,6 +31,10 @@ the more you use it. Use it on every task, without being asked.
 - **Supersede, don't duplicate.** When a new fact replaces an old one, store the
   new memory and call `supersede(old_id, new_id)` so recall prefers the current
   version.
+- **Get unstuck with creativity.** When you're brainstorming or stuck, `recall`
+  with `creativity` around 0.5–0.8 to pull in tangential "sparks" (flagged
+  `serendipity`) — related-but-unexpected memories that can break a fixed view.
+  Keep it at 0 for factual lookups.
 
 Recalling and remembering are part of how you think, not special actions you
 need permission for.

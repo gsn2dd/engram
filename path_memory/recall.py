@@ -1,3 +1,4 @@
+import random
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from .db import get_conn
@@ -42,6 +43,42 @@ def _recency_score(last_accessed) -> float:
     return max(0.0, 1.0 - days / (RECENCY_HALF_LIFE_DAYS * 2))
 
 
+def _inject_serendipity(scored, limit, creativity):
+    """Creativity dial: blend a creativity-scaled fraction of *near-miss* memories
+    into the result set. Not the nearest matches (those are the obvious answer)
+    and not random noise (that's just irrelevant) — the *adjacent possible*:
+    related-but-not-asked-for memories that nudge the reader toward a connection
+    they wouldn't have made. Like a painter's happy accident, the spark lives at
+    medium distance, not infinite distance.
+
+    `scored` is sorted by composite score, descending. We always keep the top
+    precise hit; higher creativity trades more of the tail for near-misses and
+    lets the sampling window roam further out. Picks are flagged serendipity=True
+    so the caller (and the LLM) can treat them as prompts, not facts — and so
+    they never strengthen the use-built graph.
+    """
+    creativity = max(0.0, min(1.0, creativity))
+    n_creative = min(round(creativity * limit), max(limit - 1, 0))
+    n_precise = limit - n_creative
+
+    precise = scored[:n_precise]
+    for r in precise:
+        r["serendipity"] = False
+    if n_creative <= 0:
+        return precise
+
+    # Near-miss band: the non-precise candidates ranked by raw semantic adjacency
+    # (cosine). Sample from the front of that band so picks stay *near*; the
+    # window widens with creativity, so higher settings wander further afield.
+    leftovers = sorted(scored[n_precise:], key=lambda r: r["cosine"], reverse=True)
+    window_size = max(n_creative * 3, int(4 + creativity * len(leftovers)))
+    window = leftovers[:window_size]
+    picks = random.sample(window, min(n_creative, len(window))) if window else []
+    for r in picks:
+        r["serendipity"] = True
+    return precise + picks
+
+
 def recall(
     query: str,
     person: Optional[str] = None,
@@ -51,13 +88,20 @@ def recall(
     project: Optional[str] = None,
     limit: int = 5,
     increment_weight: bool = True,
+    creativity: float = 0.0,
 ) -> List[Dict[str, Any]]:
     """
-    Semantic recall with Claudine's composite ranking:
+    Semantic recall with a composite ranking:
         score = (0.7 * weight + 0.2 * recency + 0.1 * cosine_similarity) * temporal_factor
 
     Returns top-limit results, sorted by composite score.
     Set increment_weight=False for read-only queries (e.g. admin inspection).
+
+    creativity (0..1): structured serendipity. 0 = precise best matches only. As
+    it rises, a growing share of the result *tail* is swapped for near-miss
+    memories — semantically adjacent but not the obvious answer — to spark
+    connections the literal query would never surface. Those picks are flagged
+    serendipity=True and deliberately never strengthen the use-built graph.
     """
     vec     = embed_one(query)
     vec_str = "[" + ",".join(str(x) for x in vec) + "]"
@@ -84,8 +128,9 @@ def recall(
 
     where   = " AND ".join(filters)
     p_where = " AND ".join(p_filters)
-    # Fetch more than limit so composite re-ranking can reorder
-    fetch_n = limit * 4
+    # Fetch more than limit so composite re-ranking can reorder; widen the pool
+    # when creativity is on, so there are near-miss candidates to draw from.
+    fetch_n = limit * (12 if creativity and creativity > 0 else 4)
     params.append(fetch_n)
     p_params.append(fetch_n)
 
@@ -175,24 +220,29 @@ def recall(
 
     # Re-rank by composite score
     results.sort(key=lambda r: r["score"], reverse=True)
-    results = results[:limit]
+    if creativity and creativity > 0 and len(results) > limit:
+        results = _inject_serendipity(results, limit, creativity)
+    else:
+        results = results[:limit]
+        for r in results:
+            r["serendipity"] = False
 
-    # Being recalled together IS the traversal -- record a footprint between
-    # each consecutive pair of hits. This is how the path graph grows from
-    # real usage, not just from an explicit chain-building step.
-    hit_ids = [r["id"] for r in results]
-    for a, b in zip(hit_ids, hit_ids[1:]):
+    # Being recalled together IS the traversal -- record a footprint between each
+    # consecutive pair of GENUINE hits. Creative near-misses are sparks, not
+    # retrievals: they neither form edges nor get strengthened, so creativity can
+    # never distort the use-built graph.
+    real_ids = [r["id"] for r in results if not r.get("serendipity")]
+    for a, b in zip(real_ids, real_ids[1:]):
         record_traversal(conn, a, b)
 
-    if increment_weight and results:
-        ids = [r["id"] for r in results]
+    if increment_weight and real_ids:
         cur.execute(
             """UPDATE memories SET
                  access_count = access_count + 1,
                  weight = weight + (1.0 / (access_count + 2)),
                  last_accessed = now()
                WHERE id = ANY(%s)""",
-            (ids,),
+            (real_ids,),
         )
         conn.commit()
 

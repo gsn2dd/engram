@@ -81,6 +81,28 @@ The first makes the data **searchable by meaning** *and* reassemblable as a
 whole; the second is the quick path when you only ever want the object back as a
 unit. Use whichever the task needs.
 
+### Creativity — structured serendipity
+
+`recall` takes an optional **`creativity`** (0–1). At `0` you get the precise
+best matches. Turn it up and engram swaps a growing share of the *tail* of the
+results for **near-miss memories** — semantically adjacent, but not the obvious
+answer — to nudge the agent toward a connection the literal query would never
+surface. It always keeps the real top hit; it just mixes in sparks.
+
+```python
+recall("how do we keep users logged in", creativity=0)     # -> the auth decision
+recall("how do we keep users logged in", creativity=0.8)   # -> auth decision + the founder, the office, the caching debate
+```
+
+The point is the painter's happy accident, or a useful mutation: a small,
+*aimed* detour is where inspiration comes from. So the noise isn't random —
+random is just irrelevant — it's the **adjacent possible**, drawn from the
+second ring of the embedding space. Sparks are flagged `serendipity=true`, so
+the agent treats them as prompts rather than facts, and they never strengthen
+the use-built graph. Almost every memory system chases precision; this is the
+dial for the opposite — and it's grounded in how minds actually generate ideas
+(divergent thinking, incubation, the way dreams recombine distant memories).
+
 ---
 
 ## Where it comes from
