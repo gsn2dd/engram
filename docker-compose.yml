@@ -1,0 +1,19 @@
+version: "3.9"
+
+# Engram is one container: Postgres+pgvector (the brain's storage) plus the MCP
+# server that exposes it. `docker compose up` is the whole setup. Point any
+# MCP-capable agent at http://localhost:8080/mcp to give it a memory.
+services:
+  engram:
+    build: .
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "8080:8080"   # MCP endpoint — attach your agent at http://localhost:8080/mcp
+
+volumes:
+  pgdata:

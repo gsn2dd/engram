@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: pathmemoria
+          POSTGRES_USER: pathuser
+          POSTGRES_PASSWORD: pathpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Apply schema
+        env:
+          PGPASSWORD: pathpass
+        run: psql -h localhost -U pathuser -d pathmemoria -f schema.sql
+
+      - name: Import check
+        run: python3 -c "from path_memory import Memory, recall, run_decay; print('imports OK')"
+
+      - name: Smoke test (no API keys)
+        env:
+          DB_NAME: pathmemoria
+          DB_USER: pathuser
+          DB_PASS: pathpass
+          DB_HOST: localhost
+        run: |
+          python3 -c "
+          import sys; sys.path.insert(0,'.')
+          from path_memory.db import get_conn
+          conn = get_conn()
+          cur = conn.cursor()
+          cur.execute(\"INSERT INTO memories (person, subject, body) VALUES ('test', 'ci test', 'smoke test body') RETURNING id\")
+          mid = cur.fetchone()[0]
+          conn.commit()
+          cur.execute('SELECT id, subject FROM memories WHERE id = %s', (mid,))
+          row = cur.fetchone()
+          assert row[1] == 'ci test', f'Expected ci test, got {row[1]}'
+          cur.execute('DELETE FROM memories WHERE id = %s', (mid,))
+          conn.commit()
+          cur.close(); conn.close()
+          print(f'DB smoke test passed (id={mid})')
+          "
+
+      - name: Unit tests
+        # Temporal tests run anywhere; the feature tests (perspectives / project
+        # scoping / distillation) need OPENAI_API_KEY + ANTHROPIC_API_KEY and
+        # skip automatically when they're absent (as they are in CI).
+        env:
+          DB_NAME: pathmemoria
+          DB_USER: pathuser
+          DB_PASS: pathpass
+          DB_HOST: localhost
+        run: python3 -m unittest discover -s tests -v

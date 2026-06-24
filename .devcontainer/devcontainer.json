@@ -1,0 +1,22 @@
+{
+  // GitHub Codespaces config — gives the repo a one-click "Code → Codespaces"
+  // button that boots engram in a cloud container in the browser, no local
+  // install. Try-it-before-you-self-host.
+  //
+  // Before creating the Codespace, set two Codespace secrets so embeddings +
+  // lens generation work (repo → Settings → Secrets → Codespaces):
+  //   OPENAI_API_KEY   ANTHROPIC_API_KEY
+  "name": "engram",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "engram", "onAutoForward": "openPreview" }
+  },
+  // Seed a .env from the Codespace secrets, then bring the single
+  // self-contained container up. Engram is live on port 8080 once it finishes.
+  "postCreateCommand": "cp -n .env.example .env 2>/dev/null; { echo \"OPENAI_API_KEY=$OPENAI_API_KEY\"; echo \"ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY\"; } >> .env; docker compose up -d --build",
+  "postAttachCommand": "echo 'engram is starting on port 8080. If OPENAI_API_KEY / ANTHROPIC_API_KEY were not set as Codespace secrets, add them to .env and run: docker compose up -d'"
+}

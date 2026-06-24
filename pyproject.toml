@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "engram"
+version = "0.1.0"
+description = "An open-source memory brain for AI agents — fan-out perspectives plus an association graph whose weights emerge from how memories get used."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["agent-memory", "agent-brain", "knowledge-graph", "semantic-memory", "embeddings", "pgvector", "spreading-activation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "openai>=1.0.0",
+    "anthropic>=0.20.0",
+    "psycopg2-binary>=2.9.0",
+    "flask>=3.0.0",
+]
+
+[project.scripts]
+pm = "cli.pm:main"
+
+[project.urls]
+Homepage = "https://github.com/gsn2dd/engram"
+Repository = "https://github.com/gsn2dd/engram"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["path_memory*", "cli*"]
