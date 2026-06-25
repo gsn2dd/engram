@@ -58,6 +58,26 @@ That one instruction is the difference between *"the brain is plugged in"* and *
 
 **A complete, ready-to-paste version lives in [`AGENT_PROMPT.md`](AGENT_PROMPT.md)** — copy it straight into your agent's persona and adjust the voice to taste. It covers every tool (recall-first, remember-what-matters, project scoping, JSON folding, supersede) plus the `creativity` and `collapse` recall options.
 
+### Attaching to OpenClaw — a worked example
+
+With engram running (so `http://localhost:8080/sse` is live), point OpenClaw at it:
+
+```bash
+# 1. Register engram as an MCP server (OpenClaw infers SSE from the /sse URL)
+openclaw mcp set engram '{"url":"http://localhost:8080/sse"}'
+
+# 2. Confirm OpenClaw connects and can see the tools
+openclaw mcp probe engram          # -> "engram: 6 tools"
+```
+
+Then **make the agent actually use the brain** — in OpenClaw the persona is the workspace `AGENTS.md` file. Paste the block from [`AGENT_PROMPT.md`](AGENT_PROMPT.md) into `~/.openclaw/workspace/AGENTS.md`, then reload:
+
+```bash
+openclaw mcp reload                # use the new config on the next turn
+```
+
+That's it — your OpenClaw agent now recalls and remembers through engram. (Verified on OpenClaw 2026.6.10.)
+
 ### Handing engram JSON — and getting it back
 
 You can give engram JSON and read it back, two ways depending on what you want:
