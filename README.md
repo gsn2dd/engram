@@ -456,6 +456,6 @@ Path Memory layer: operational. Model Seed generator: operational. Open-source p
 
 Built in the open by **David** — more at [play4gain.com](https://play4gain.com). Inspired by Tony Buzan's work on radiant, associative thinking.
 
-engram is free and always will be. If it's useful to you and you'd like to keep the experiments running, support is welcome via the **♡ Sponsor** button at the top of the repo. ☕
+engram is free and always will be. If it's useful to you and you'd like to keep the experiments running, [buy me a coffee](https://buymeacoffee.com/gsn2ddg) ☕ — or use the **♡ Sponsor** button at the top of the repo.
 
 **100% coded by AI, with human inspiration.** Conceived and directed by [David Dand](https://worldtownguide.com/about) (gsn2dd); every line of code written by Claude.
