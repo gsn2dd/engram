@@ -94,6 +94,31 @@ class TestBestOfBoth(unittest.TestCase):
         got = recall_json(person=self.ENT, project="roundtrip")
         self.assertEqual(got, blob, "folded JSON must reassemble to the original, types intact")
 
+    def test_collapse_cuts_at_the_relevance_cliff(self):
+        # A tight cluster of three on-topic memories, then a clear drop to
+        # several off-topic ones. Collapse should return only the on-topic air.
+        for i in range(3):
+            Memory.save(f"espresso note {i}",
+                        f"Detail {i} about pulling espresso shots and grind size on the cafe machine.",
+                        person=self.ENT, project="collapse", perspectives=False)
+        for i in range(5):
+            Memory.save(f"unrelated note {i}",
+                        f"Something about {['tax filing','bicycle tyres','garden compost','roof tiles','bus timetables'][i]}.",
+                        person=self.ENT, project="collapse", perspectives=False)
+        # increment_weight=False keeps both reads from strengthening the graph,
+        # so the collapse is measured on a clean cold-brain field, not one the
+        # first query already warmed.
+        q = "how do I pull a good espresso shot"
+        plain = recall(q, person=self.ENT, project="collapse", limit=5,
+                       collapse=False, increment_weight=False)
+        collapsed = recall(q, person=self.ENT, project="collapse", limit=5,
+                           collapse=True, increment_weight=False)
+        self.assertEqual(len(plain), 5, "fixed top-N returns the full quota, padding with off-topic noise")
+        self.assertLess(len(collapsed), len(plain),
+                        "collapse should drop the noise tail and return fewer than the quota")
+        self.assertTrue(all("espresso" in (r["subject"] or "") for r in collapsed),
+                        "collapse must keep only the on-topic cluster (the 'air'), not the 'wall'")
+
     def test_creativity_injects_serendipity(self):
         # need more than `limit` candidates for near-misses to draw from
         for i in range(10):

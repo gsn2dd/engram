@@ -79,6 +79,42 @@ def _inject_serendipity(scored, limit, creativity):
     return precise + picks
 
 
+def _collapse_field(scored, limit, min_gap=0.18, min_keep=1):
+    """Collapse the 'treacle' — the blurry continuum of relevance — into a clean
+    keep/drop boundary, and return only the keep side ('air').
+
+    Raw cosine similarity alone is the blur: near-but-wrong memories (false
+    friends) look just like genuinely-relevant ones. The composite score is the
+    *resolved* field — it mixes meaning (cosine) with everything the brain knows
+    from use (edge-built weight, recency, supersession). Sorted by that, a real
+    answer-set forms a tight cluster up top, then the relevance falls off a
+    cliff into noise.
+
+    We find that cliff: the largest drop between consecutive candidates,
+    measured on the score range of the top window so it's scale-free. Cut there.
+    If nothing drops by at least `min_gap` of the window's span, there's no clean
+    wall — it's all air — so we just return the top `limit`. Either way we never
+    pad the result with treacle the way a fixed top-N does.
+    """
+    window = scored[: limit + 1] if len(scored) > limit else list(scored)
+    if len(window) <= min_keep:
+        return scored[:limit]
+
+    vals = [r["score"] for r in window]
+    hi, lo = vals[0], vals[-1]
+    span = (hi - lo) or 1.0
+    norm = [(v - lo) / span for v in vals]
+
+    best_i, best_gap = None, 0.0
+    for i in range(min_keep, min(limit, len(window) - 1) + 1):
+        gap = norm[i - 1] - norm[i]
+        if gap > best_gap:
+            best_gap, best_i = gap, i
+
+    cut = best_i if (best_i is not None and best_gap >= min_gap) else min(limit, len(scored))
+    return scored[:cut]
+
+
 def recall(
     query: str,
     person: Optional[str] = None,
@@ -89,6 +125,7 @@ def recall(
     limit: int = 5,
     increment_weight: bool = True,
     creativity: float = 0.0,
+    collapse: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Semantic recall with a composite ranking:
@@ -102,6 +139,13 @@ def recall(
     memories — semantically adjacent but not the obvious answer — to spark
     connections the literal query would never surface. Those picks are flagged
     serendipity=True and deliberately never strengthen the use-built graph.
+
+    collapse: when True, don't blindly return a fixed top-`limit`. Resolve the
+    relevance field into keep ('air') vs drop ('wall') by finding the natural
+    cliff in the composite scores, and return only the air — so a query with
+    three real answers gets three, not five padded with noise. `limit` becomes
+    an upper bound, not a quota. Mutually exclusive with creativity (collapse
+    wins); both at once makes no sense — one trims treacle, the other adds it.
     """
     vec     = embed_one(query)
     vec_str = "[" + ",".join(str(x) for x in vec) + "]"
@@ -129,8 +173,9 @@ def recall(
     where   = " AND ".join(filters)
     p_where = " AND ".join(p_filters)
     # Fetch more than limit so composite re-ranking can reorder; widen the pool
-    # when creativity is on, so there are near-miss candidates to draw from.
-    fetch_n = limit * (12 if creativity and creativity > 0 else 4)
+    # when creativity is on (near-miss candidates) or collapse is on (so the
+    # relevance cliff is actually visible in the pool, not cut off at `limit`).
+    fetch_n = limit * (12 if ((creativity and creativity > 0) or collapse) else 4)
     params.append(fetch_n)
     p_params.append(fetch_n)
 
@@ -220,7 +265,12 @@ def recall(
 
     # Re-rank by composite score
     results.sort(key=lambda r: r["score"], reverse=True)
-    if creativity and creativity > 0 and len(results) > limit:
+    if collapse:
+        # Resolve the treacle: cut at the natural relevance cliff, keep the air.
+        results = _collapse_field(results, limit)
+        for r in results:
+            r["serendipity"] = False
+    elif creativity and creativity > 0 and len(results) > limit:
         results = _inject_serendipity(results, limit, creativity)
     else:
         results = results[:limit]

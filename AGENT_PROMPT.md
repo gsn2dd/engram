@@ -35,6 +35,10 @@ the more you use it. Use it on every task, without being asked.
   with `creativity` around 0.5–0.8 to pull in tangential "sparks" (flagged
   `serendipity`) — related-but-unexpected memories that can break a fixed view.
   Keep it at 0 for factual lookups.
+- **Want a clean answer, not a list?** Call `recall` with `collapse=true`. Instead
+  of a fixed number of results padded with weak matches, it returns only the
+  memories that are genuinely relevant — it finds where relevance drops off and
+  stops there. Use it when you need *the* answer set, not the top few.
 
 Recalling and remembering are part of how you think, not special actions you
 need permission for.

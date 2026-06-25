@@ -103,6 +103,27 @@ the use-built graph. Almost every memory system chases precision; this is the
 dial for the opposite — and it's grounded in how minds actually generate ideas
 (divergent thinking, incubation, the way dreams recombine distant memories).
 
+### Collapse — only the answers, not a top-N
+
+`recall` takes an optional **`collapse`** (default off). Normally a query returns
+a fixed `limit` of results — so a question with only three real answers comes
+back padded with two weak ones, and the agent can't tell which is which. Turn
+`collapse` on and engram stops padding: it looks at how relevance falls off
+across the candidates, finds the **natural cliff**, and returns only what sits
+above it.
+
+```python
+recall("how do I pull a good espresso shot", limit=5)                  # -> 5 rows: 3 real + 2 noise
+recall("how do I pull a good espresso shot", limit=5, collapse=True)   # -> 3 rows: just the real answers
+```
+
+The idea: raw similarity is a *blur* — near-but-wrong memories look just like
+genuinely-relevant ones. Engram resolves that blur into **keep vs drop** by
+mixing in everything it knows from use (edge strength, recency, supersession),
+ranking by the result, and then cutting where relevance falls off a cliff. If
+nothing falls off — it's all relevant — you simply get the top `limit` back, so
+it's always safe to leave on. `limit` becomes a ceiling, not a quota.
+
 ---
 
 ## Where it comes from
