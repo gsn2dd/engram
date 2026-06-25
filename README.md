@@ -46,7 +46,7 @@ Attaching the endpoint makes the tools *available* — but a model won't reflexi
 
 That one instruction is the difference between *"the brain is plugged in"* and *"the agent thinks with it."* The tool descriptions steer **how** to call each tool; this steers **when**. (In OpenClaw, add it to the agent's persona; in Claude Desktop, to the system prompt; in your own agent, to its system message.)
 
-**A complete, ready-to-paste version lives in [`AGENT_PROMPT.md`](AGENT_PROMPT.md)** — copy it straight into your agent's persona and adjust the voice to taste. It covers all five tools (recall-first, remember-what-matters, project scoping, JSON folding, supersede).
+**A complete, ready-to-paste version lives in [`AGENT_PROMPT.md`](AGENT_PROMPT.md)** — copy it straight into your agent's persona and adjust the voice to taste. It covers every tool (recall-first, remember-what-matters, project scoping, JSON folding, supersede) plus the `creativity` and `collapse` recall options.
 
 ### Handing engram JSON — and getting it back
 
@@ -428,6 +428,8 @@ Active development, and **genuinely experimental.** The core works, but Engram h
 > **How does memory retention and retrieval hold up over time?**
 
 As the graph grows to thousands of memories and the decay-and-strengthening loop runs for weeks and months, does the *right* memory stay easy to find — and does the *unused* stuff fade cleanly — or does recall slowly drift? We don't yet know, and that's exactly the thing a real brain has to get right.
+
+**What's shipped, and what's next:** see [`CHANGELOG.md`](CHANGELOG.md) for the release history, and [`ROADMAP.md`](ROADMAP.md) for the experiments this opens up — most of which only become testable once a brain has *aged* into a real association graph (e.g. *resolve-then-ridge* recall, which walks the strongest learned path through the relevant set rather than ranking by similarity alone).
 
 **If you run it, we'd genuinely like to hear back:** what got harder to find, what surfaced that shouldn't have, how recall *felt* after a month of real use. That long-horizon feedback is the most valuable thing you can give the project — open an issue and tell us what your brain remembered and what it forgot.
 

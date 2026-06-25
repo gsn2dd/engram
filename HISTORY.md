@@ -13,7 +13,7 @@ Merging them produced a single substrate where anything you attach — text or s
 
 It tries to behave the way memory actually *feels* — inspired by Tony Buzan's work on radiant, associative thinking and by the lived human experience of remembering.
 
-**Engram v0.1.0** — the engine is **100% coded by AI (Claude)**, from the inspiration and direction of its human author (David Dand). The vision and the ideas are human; every line of code is the AI's.
+**Engram** — the engine is **100% coded by AI (Claude)**, from the inspiration and direction of its human author (David Dand). The vision and the ideas are human; every line of code is the AI's. (For the release-by-release history, see [`CHANGELOG.md`](CHANGELOG.md); for where it's going, [`ROADMAP.md`](ROADMAP.md).)
 
 ## Honest status
 
