@@ -5,6 +5,16 @@
 
 ---
 
+> ⚠️ **Experimental — early days.** Engram works and is tested, but it has **not
+> been proven in long, real-world use.** The features that make it *useful*
+> (persistent, semantic, structured, attachable) are solid; the features that
+> make it *distinctive* (memory that improves with use and forgets cleanly over
+> time) are a **bet we're still testing** — see [Status](#status--and-an-honest-ask)
+> and the [roadmap](ROADMAP.md). Run it, kick the tyres, tell us what breaks —
+> but don't trust it with anything you can't afford to have mis-remembered yet.
+
+---
+
 ## What this is
 
 **Engram** is an open-source memory *brain* for AI agents — not another vector store. You run it as a container, and your agent attaches to it as its persistent memory. It's built on a few ideas most "memory" libraries don't have:
@@ -423,7 +433,12 @@ The weights that emerge from your usage are yours.
 
 ## Status — and an honest ask
 
-Active development, and **genuinely experimental.** The core works, but Engram has **not yet been tested in long trials.** The open question we most want help with:
+Active development, and **genuinely experimental.** The core works, but Engram has **not yet been tested in long trials.** To be straight about where the line falls:
+
+- **Proven today** (tested / true by construction): memory persists across sessions outside the model; semantic recall finds things with no shared words; `collapse` returns only the relevant matches; JSON fold/unfold round-trips; project scoping, supersede, and temporal anchoring all behave as described; it attaches by MCP with no glue code, and it's open and fully inspectable.
+- **Hoped-for — still a bet** (designed-for, *not* yet proven): that recall *gets better the more it's used*, that the brain *forgets cleanly* over weeks and months, and that recall stays sharp as it grows to thousands of memories. These are the claims that make Engram different from a plain vector store — and they're exactly what we haven't proven yet.
+
+So the open question we most want help with:
 
 > **How does memory retention and retrieval hold up over time?**
 
