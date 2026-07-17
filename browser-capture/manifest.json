@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Engram Capture",
+  "version": "0.1.7",
+  "description": "Auto-capture your claude.ai and ChatGPT conversations into your self-hosted engram memory.",
+  "permissions": ["storage", "alarms"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": ["redact.js", "capture.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "action": { "default_title": "Engram Capture — click for options" }
+}
