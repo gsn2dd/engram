@@ -1,4 +1,4 @@
-# Chrome Web Store listing — Engram Capture v0.1.7
+# Chrome Web Store listing — Engram Capture v0.1.8
 Publish as **Unlisted** (link-only). Public adds review friction for zero benefit on a personal tool.
 
 ## Name

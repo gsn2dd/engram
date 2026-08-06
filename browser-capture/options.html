@@ -29,6 +29,8 @@
 
   <div class="row"><input type="checkbox" id="enabled"><label for="enabled" style="margin:0;font-weight:600;">Capturing enabled</label></div>
   <div class="row"><input type="checkbox" id="debug"><label for="debug" style="margin:0;font-weight:600;">Debug (log captured exchanges to the page console)</label></div>
+  <div class="row"><input type="checkbox" id="capture_attachments"><label for="capture_attachments" style="margin:0;font-weight:600;">Capture pasted / attached content</label></div>
+  <div class="hint">When on, large pastes and file attachments in your prompt are captured and sent to your endpoint (added in v0.1.8). Turn off to send only your typed text.</div>
 
   <div><button id="save">Save</button><span id="status"></span></div>
   <div style="margin-top:10px;"><button id="test" style="background:#6366f1;">Test connection</button><span id="teststatus" style="margin-left:12px;font-size:14px;"></span></div>

@@ -1,6 +1,6 @@
 const FIELDS = ['endpoint', 'token', 'contributor'];
-const CHECKS = ['enabled', 'debug'];
-const DEFAULTS = { endpoint: '', token: '', contributor: 'david', enabled: true, debug: false };
+const CHECKS = ['enabled', 'debug', 'capture_attachments'];
+const DEFAULTS = { endpoint: '', token: '', contributor: 'david', enabled: true, debug: false, capture_attachments: true };
 
 chrome.storage.sync.get(DEFAULTS, (cfg) => {
   FIELDS.forEach((k) => (document.getElementById(k).value = cfg[k] || ''));

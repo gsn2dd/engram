@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Engram Capture",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "description": "Auto-capture your claude.ai and ChatGPT conversations into your self-hosted engram memory.",
   "permissions": [
     "storage",

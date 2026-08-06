@@ -6,7 +6,9 @@
   const HOST = location.hostname;
 
   // --- Per-host extractors ------------------------------------------------
-  // Return an array of {role:'user'|'assistant', text} in document order.
+  // Return an array of {role:'user'|'assistant', el} in document order.
+  // Text is pulled centrally (turnText below) so attachment-augmentation
+  // for the user role is shared across hosts instead of duplicated per site.
   const EXTRACTORS = {
     'chatgpt.com': extractChatGPT,
     'chat.openai.com': extractChatGPT,
@@ -17,7 +19,7 @@
     // ChatGPT marks each turn with data-message-author-role (stable-ish).
     return [...document.querySelectorAll('[data-message-author-role]')].map((el) => ({
       role: el.getAttribute('data-message-author-role') === 'user' ? 'user' : 'assistant',
-      text: (el.innerText || '').trim(),
+      el,
     }));
   }
 
@@ -51,15 +53,69 @@
     if (!u.nodes.length && !a.nodes.length) return [];
     const tagged = [...u.nodes.map((el) => ({ el, role: 'user' })), ...a.nodes.map((el) => ({ el, role: 'assistant' }))];
     tagged.sort((x, y) => (x.el.compareDocumentPosition(y.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-    return tagged.map((t) => ({ role: t.role, text: (t.el.innerText || '').trim() }));
+    return tagged;
   }
 
   const extractor = EXTRACTORS[HOST];
   if (!extractor) return;
 
+  // --- Attachments / pasted content ---------------------------------------
+  // A big paste often renders as a separate "file chip" component next to
+  // the typed text, NOT inside the user-message node's own subtree — so
+  // plain innerText on the message misses it entirely. Widen outward from
+  // the message element one ancestor level at a time and grab anything that
+  // looks like a file/paste/attachment preview, stopping at the first level
+  // that finds something (keeps us from bleeding into a neighbouring turn).
+  const ATTACH_SELS = [
+    '[data-testid*="attachment" i]',
+    '[data-testid*="file" i]',
+    '[data-testid*="paste" i]',
+    '[class*="attachment" i]',
+    '[class*="file-thumbnail" i]',
+    '[class*="file-preview" i]',
+  ];
+  function nearbyAttachmentText(msgEl) {
+    const seen = new Set();
+    const parts = [];
+    let scope = msgEl.parentElement;
+    for (let level = 0; level < 3 && scope; level++, scope = scope.parentElement) {
+      for (const sel of ATTACH_SELS) {
+        for (const el of scope.querySelectorAll(sel)) {
+          if (msgEl.contains(el) || el.contains(msgEl)) continue; // stuff already inside the message text itself
+          const txt = (el.innerText || '').trim();
+          if (txt.length > 20 && !seen.has(txt)) { seen.add(txt); parts.push(txt); }
+        }
+      }
+      if (parts.length) break; // found something at this level — don't widen further and risk another turn
+    }
+    if (debug && parts.length) console.log('[engram-capture] found ' + parts.length + ' attachment block(s) near user message');
+    // Diagnostic (once): typed text present but short, and nothing matched —
+    // dump nearby hooks so the ATTACH_SELS list above can be re-tuned.
+    if (debug && !parts.length && !nearbyAttachmentText._dumped) {
+      const p2 = msgEl.parentElement?.parentElement;
+      if (p2) {
+        const ids = [...new Set([...p2.querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid')))];
+        if (ids.length) {
+          nearbyAttachmentText._dumped = true;
+          console.log('[engram-capture] DIAGNOSTIC nearby data-testids (no attachment match):', JSON.stringify(ids));
+        }
+      }
+    }
+    return parts.join('\n\n');
+  }
+
+  function turnText(role, el) {
+    let text = (el.innerText || '').trim();
+    if (role === 'user' && captureAttachments) {
+      const extra = nearbyAttachmentText(el);
+      if (extra) text = text ? text + '\n\n[Pasted/attached content]\n' + extra : extra;
+    }
+    return text;
+  }
+
   // While the model is still streaming, don't finalise a turn — the answer is
   // still growing (and may briefly read just "Thinking"). Best-effort per-host
-  // signal; the stability gate below is the real backstop if this misses.
+  // signal; the settle timer below is the real backstop if this misses.
   function isGenerating() {
     return !!document.querySelector(
       '[data-testid="stop-button"], button[data-testid="stop-button"], ' +
@@ -69,8 +125,13 @@
   }
 
   // --- Dedup + pairing ----------------------------------------------------
-  const sent = new Set();      // exchanges already POSTed (conv+user+answer hash)
-  const lastText = new Map();  // stabKey -> { text, stable } — how many consecutive scans the answer has been unchanged
+  // posted: stabKeys (one per user turn) we've already finalised and sent.
+  // Keying finalisation on the TURN, not on a hash of the answer text, is
+  // what stops growth-snapshot spam: earlier versions re-armed on every text
+  // change and would fire again each time a mid-stream pause looked "stable"
+  // for a moment, posting 2-3 separate truncated prefixes of the same answer.
+  const posted = new Set();
+  const lastText = new Map();  // stabKey -> { text, changedAt } — real-time settle tracking
   function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
   function convId() {
     const m = location.pathname.match(/([0-9a-f-]{16,})/i);
@@ -78,18 +139,36 @@
   }
 
   let debug = false;
-  chrome.storage.sync.get({ debug: false }, (c) => { debug = !!c.debug; });
+  // capture_attachments: include pasted/attached content (the v0.1.8 feature) in the user turn.
+  // Default ON to preserve existing behaviour; switch OFF in options for privacy. Live via onChanged
+  // so toggling takes effect on the next captured turn without a page reload.
+  let captureAttachments = true;
+  chrome.storage.sync.get({ debug: false, capture_attachments: true }, (c) => {
+    debug = !!c.debug;
+    captureAttachments = c.capture_attachments !== false;
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync') return;
+    if (changes.debug) debug = !!changes.debug.newValue;
+    if (changes.capture_attachments) captureAttachments = changes.capture_attachments.newValue !== false;
+  });
 
-  // Text-stability is the ground truth. isGenerating() only lets a settled answer
-  // emit sooner; if that indicator is stuck on (some sites keep the stop control
-  // in the DOM), the answer still emits once its text stops changing for a while.
-  const STABLE_WHEN_IDLE = 1;   // scans of unchanged text needed when not "generating"
-  const STABLE_WHEN_BUSY = 4;   // ... when the streaming indicator is (perhaps wrongly) still on
+  // Text-stability is judged by ELAPSED REAL TIME unchanged, not scan count —
+  // scan cadence varies with DOM activity, so a scan-count gate of "1" (the
+  // old default when not "generating") could fire on a single quiet moment
+  // mid-stream. A wall-clock settle window is robust to that regardless of
+  // how often mutations happen to fire.
+  const SETTLE_MS = 2500;       // real ms unchanged required when not "generating"
+  const SETTLE_MS_BUSY = 5000;  // ... when the streaming indicator is (perhaps wrongly) still on
 
   let stabT = null;
   function scan() {
     let turns;
-    try { turns = extractor().filter((t) => t.text && t.text.length > 1); } catch (e) { return; }
+    try {
+      turns = extractor()
+        .map((t) => ({ role: t.role, text: turnText(t.role, t.el) }))
+        .filter((t) => t.text && t.text.length > 1);
+    } catch (e) { return; }
     const generating = isGenerating();
     let pending = false;
     // Pair user -> following assistant into exchanges.
@@ -100,23 +179,22 @@
       for (let j = i + 1; j < turns.length; j++) { if (turns[j].role === 'assistant') { asst = turns[j]; break; } }
       if (!asst) { if (debug) console.log('[engram-capture] user turn has no following assistant yet'); continue; }
       const stabKey = convId() + ':' + hash(user.text);
-      const sentKey = stabKey + ':' + hash(asst.text);
-      if (sent.has(sentKey)) continue;
+      if (posted.has(stabKey)) continue; // this turn's final answer already captured
       const prev = lastText.get(stabKey);
+      const now = Date.now();
       if (!prev || prev.text !== asst.text) {
-        if (debug) console.log('[engram-capture] answer still changing — waiting (len ' + asst.text.length + ')');
-        lastText.set(stabKey, { text: asst.text, stable: 0 });
+        if (debug) console.log('[engram-capture] answer growing/changing — waiting (len ' + asst.text.length + ')');
+        lastText.set(stabKey, { text: asst.text, changedAt: now });
         pending = true; continue;
       }
-      // Text unchanged since last scan — count how long it has held steady.
-      prev.stable += 1;
-      const need = generating ? STABLE_WHEN_BUSY : STABLE_WHEN_IDLE;
-      if (prev.stable < need) {
-        if (debug) console.log('[engram-capture] answer steady ' + prev.stable + '/' + need + (generating ? ' (indicator still says generating)' : ''));
+      const need = generating ? SETTLE_MS_BUSY : SETTLE_MS;
+      const elapsed = now - prev.changedAt;
+      if (elapsed < need) {
+        if (debug) console.log('[engram-capture] answer unchanged ' + elapsed + 'ms/' + need + 'ms' + (generating ? ' (indicator still says generating)' : ''));
         pending = true; continue;
       }
-      if (debug) console.log('[engram-capture] answer stable — emitting exchange');
-      sent.add(sentKey);
+      if (debug) console.log('[engram-capture] answer settled — emitting exchange (len ' + asst.text.length + ')');
+      posted.add(stabKey);
       const exchange = {
         source: HOST.replace('chat.openai.com', 'chatgpt.com'),
         conversation_id: convId(),
@@ -130,7 +208,7 @@
     }
     // Something changed since the last scan — re-scan soon so a freshly-finished
     // answer gets its confirming second look even if the DOM goes quiet.
-    if (pending) { clearTimeout(stabT); stabT = setTimeout(scan, 1600); }
+    if (pending) { clearTimeout(stabT); stabT = setTimeout(scan, 1200); }
   }
 
   // Debounced observe: SPAs stream tokens, so wait for quiet before scanning.
