@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build the Engram AMI.
 #
-#   ./build-ami.sh --key-name my-key --subnet-id subnet-abc123
+#   ./build-ami.sh
 #
 # Launches a clean Amazon Linux 2023 instance, hands it provision.sh as
 # user-data, waits for it to power itself off (the success signal), then
@@ -23,14 +23,17 @@ NAME_PREFIX="engram"
 BUILD_TIMEOUT=1800          # 30 min; provisioning is a dnf update + docker pull
 
 usage() {
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
     cat <<EOF
 
-Required:
-  --key-name NAME          EC2 key pair, so a failed build can be inspected
-  --subnet-id SUBNET       Subnet with outbound internet (dnf + ghcr.io pull)
+All arguments are optional — with none, it picks a default public subnet and
+builds without a key pair. On failure the builder's console log is dumped, so
+there is nothing to SSH in for.
 
-Optional:
+  --subnet-id SUBNET       default: a default-for-AZ subnet in this region.
+                           Needs outbound internet (dnf + ghcr.io pull)
+  --key-name NAME          attach a key pair. Only useful if you want to poke
+                           around a failed builder by hand
   --region REGION          default: \$AWS_DEFAULT_REGION or eu-west-1
   --instance-type TYPE     default: ${INSTANCE_TYPE}
   --security-group-id SG   default: the VPC's default security group
@@ -54,9 +57,6 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -n "$KEY_NAME" ]  || { echo "error: --key-name is required" >&2; usage; }
-[ -n "$SUBNET_ID" ] || { echo "error: --subnet-id is required" >&2; usage; }
-
 HERE="$(cd "$(dirname "$0")" && pwd)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 AMI_NAME="${NAME_PREFIX}-al2023-${STAMP}"
@@ -64,6 +64,17 @@ AMI_NAME="${NAME_PREFIX}-al2023-${STAMP}"
 aws() { command aws --region "$REGION" "$@"; }
 
 echo "==> region ${REGION}, building ${AMI_NAME} from ${ENGRAM_IMAGE}"
+
+# No subnet given: take a default-for-AZ one. Keeps the common case to a bare
+# `./build-ami.sh` without hardcoding anyone's network into the repo.
+if [ -z "$SUBNET_ID" ]; then
+    SUBNET_ID="$(aws ec2 describe-subnets \
+        --filters "Name=default-for-az,Values=true" \
+        --query 'Subnets[0].SubnetId' --output text 2>/dev/null)"
+    [ -n "$SUBNET_ID" ] && [ "$SUBNET_ID" != "None" ] || {
+        echo "error: no default subnet in ${REGION}; pass --subnet-id" >&2; exit 1; }
+    echo "==> using default subnet ${SUBNET_ID}"
+fi
 
 # Latest AL2023 from the public SSM parameter, so the build never pins a base
 # image that quietly goes end-of-life and fails the Marketplace scan.
@@ -83,7 +94,6 @@ trap 'rm -f "$USER_DATA"' EXIT
 RUN_ARGS=(
     --image-id "$BASE_AMI"
     --instance-type "$INSTANCE_TYPE"
-    --key-name "$KEY_NAME"
     --subnet-id "$SUBNET_ID"
     --user-data "file://${USER_DATA}"
     --metadata-options "HttpTokens=required,HttpEndpoint=enabled"
@@ -91,6 +101,7 @@ RUN_ARGS=(
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${AMI_NAME}-builder},{Key=engram:role,Value=ami-builder}]"
 )
 [ -n "$SECURITY_GROUP_ID" ] && RUN_ARGS+=(--security-group-ids "$SECURITY_GROUP_ID")
+[ -n "$KEY_NAME" ] && RUN_ARGS+=(--key-name "$KEY_NAME")
 
 INSTANCE_ID="$(aws ec2 run-instances "${RUN_ARGS[@]}" \
     --query 'Instances[0].InstanceId' --output text)"
@@ -112,8 +123,12 @@ while :; do
     [ "$STATE" = "stopped" ] && { echo "==> provisioning complete"; break; }
     if [ "$(date +%s)" -ge "$DEADLINE" ]; then
         echo "!! timed out with instance in state '${STATE}'." >&2
-        echo "!! builder ${INSTANCE_ID} left running on purpose — ssh in and read" >&2
-        echo "!!   /var/log/engram-provision.log  (then terminate it yourself)" >&2
+        echo "!! last 60 lines of the builder's console log:" >&2
+        aws ec2 get-console-output --instance-id "$INSTANCE_ID" \
+            --query Output --output text 2>/dev/null | tail -60 >&2 || \
+            echo "!! (console output not available yet — it can lag a few minutes)" >&2
+        echo "!! builder ${INSTANCE_ID} left running on purpose. Terminate it with:" >&2
+        echo "!!   aws ec2 terminate-instances --region ${REGION} --instance-ids ${INSTANCE_ID}" >&2
         exit 1
     fi
     sleep 20
@@ -122,7 +137,7 @@ done
 IMAGE_ID="$(aws ec2 create-image \
     --instance-id "$INSTANCE_ID" \
     --name "$AMI_NAME" \
-    --description "Engram — persistent memory brain for AI agents (${ENGRAM_IMAGE})" \
+    --description "Engram - persistent memory brain for AI agents (${ENGRAM_IMAGE})" \
     --tag-specifications "ResourceType=image,Tags=[{Key=Name,Value=${AMI_NAME}},{Key=engram:image,Value=${ENGRAM_IMAGE}}]" \
     --query 'ImageId' --output text)"
 echo "==> creating AMI ${IMAGE_ID}"

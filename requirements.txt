@@ -1,4 +1,12 @@
-openai>=1.0.0
-anthropic>=0.20.0
-psycopg2-binary>=2.9.0
-mcp>=1.2.0
+# Major versions are capped deliberately. This file is installed fresh every
+# time the image is built, so an uncapped dependency means the container can
+# break without a single line of engram changing.
+#
+# That is not hypothetical: `mcp>=1.2.0` picked up mcp 2.0.0, which removed
+# mcp.server.fastmcp, and the published image crash-looped on startup with
+# ModuleNotFoundError. Nothing here had changed. Raise a cap when you have
+# actually ported to the new major, not before.
+openai>=1.0.0,<3.0.0
+anthropic>=0.20.0,<1.0.0
+psycopg2-binary>=2.9.0,<3.0.0
+mcp>=1.2.0,<2.0.0

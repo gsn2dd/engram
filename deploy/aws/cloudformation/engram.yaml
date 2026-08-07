@@ -81,7 +81,11 @@ Resources:
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Engram — egress only unless SSH is explicitly enabled
+      # ASCII only. This string is passed straight through to the EC2 API,
+      # which rejects anything beyond ASCII — an em dash here fails the whole
+      # stack. The same rule applies to any tag value or rule description
+      # below; CloudFormation's own Description fields are unaffected.
+      GroupDescription: Engram - egress only unless SSH is explicitly enabled
       VpcId: !Ref VpcId
       SecurityGroupEgress:
         - IpProtocol: -1
