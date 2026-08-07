@@ -20,7 +20,11 @@ CREATE TABLE IF NOT EXISTS memories (
     origin        text DEFAULT 'contribution'    -- contribution|discovery|recycle
                   CHECK (origin IN ('contribution','discovery','recycle')),
     -- Vector
-    embedding     vector(768),                   -- semantic position (text-embedding-3-small)
+    embedding     vector(768),                   -- semantic position
+    -- Which model produced `embedding`. Vectors from different models are the
+    -- same length and NOT comparable, so a brain must know its own provenance;
+    -- see path_memory/embed.py assert_brain_compatible().
+    embedding_model text,
     -- Observer weight
     access_count  integer DEFAULT 0,             -- total retrievals
     success_count integer DEFAULT 0,             -- retrievals that led to a published page
@@ -38,6 +42,20 @@ CREATE TABLE IF NOT EXISTS memories (
     -- NULL on both = not a calendar-anchored claim (most rows).
     temporal_anchor_start date,                   -- e.g. event/validity start date
     temporal_anchor_end   date                    -- defaults to anchor_start if unset
+);
+
+-- Idempotent, so re-running this file upgrades a brain created before the
+-- column existed. Fresh installs get it from the CREATE TABLE above.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_model text;
+
+-- Browser-capture claims. The ingest endpoint claims an exchange id here BEFORE
+-- doing the (slow) embed-and-save, so two concurrent posts of the same exchange
+-- cannot both proceed. A pre-flight SELECT cannot do this: the second request
+-- arrives while the first is still embedding and sees nothing.
+CREATE TABLE IF NOT EXISTS captures (
+    exchange_id text PRIMARY KEY,
+    memory_id   integer,
+    created_at  timestamptz DEFAULT now()
 );
 
 ALTER TABLE memories ADD CONSTRAINT memories_node_key_uniq UNIQUE (node_key);

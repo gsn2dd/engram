@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >-
+  Engram — a persistent memory brain for AI agents. Launches a single instance
+  running the Engram MCP endpoint, which any MCP-capable agent (Claude Code,
+  OpenClaw, Hermes Agent, Claude Desktop) attaches to as its long-term memory.
+  The endpoint is loopback-only by default and reached over an SSM port-forward,
+  because the MCP server has no authentication of its own.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: "Instance"}
+        Parameters: [ImageId, InstanceType, BrainVolumeSize]
+      - Label: {default: "Network"}
+        Parameters: [VpcId, SubnetId, AllowedSshCidr]
+      - Label: {default: "Access"}
+        Parameters: [KeyName]
+    ParameterLabels:
+      ImageId: {default: "Engram AMI"}
+      BrainVolumeSize: {default: "Brain storage (GiB)"}
+      AllowedSshCidr: {default: "SSH access from"}
+
+Parameters:
+
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: >-
+      The Engram AMI. Left as a parameter rather than a region map so the same
+      template serves a Marketplace launch, a private build, and a test build.
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium, t3.large, m7i.large, m7i.xlarge, r7i.large]
+    Description: >-
+      t3.small suits a personal brain. Embedding and consolidation are the only
+      real load; step up to r7i.large once the brain is large enough that
+      Postgres wants the memory for its vector index.
+
+  BrainVolumeSize:
+    Type: Number
+    Default: 20
+    MinValue: 8
+    MaxValue: 1000
+    Description: Root volume size in GiB. Holds the OS and the brain's Postgres data.
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >-
+      Needs outbound internet (or a NAT) so the instance can reach your
+      embedding provider. No inbound access is required.
+
+  KeyName:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional EC2 key pair. Leave blank to rely on Session Manager only, which
+      is the recommended setup — no SSH keys to manage or lose.
+
+  AllowedSshCidr:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional CIDR permitted to reach port 22. Leave blank for no inbound SSH
+      at all. Never opens the Engram port itself — see the template description.
+    AllowedPattern: "^$|^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, ""]]
+  HasSshCidr: !Not [!Equals [!Ref AllowedSshCidr, ""]]
+
+Resources:
+
+  # No inbound rules unless SSH is explicitly asked for. The Engram port is
+  # never opened: the MCP server does not authenticate, so exposing 8080 would
+  # hand the whole brain to anyone who can route to it.
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Engram — egress only unless SSH is explicitly enabled
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Outbound to the embedding provider and for OS updates
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-engram"}
+
+  SshIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSshCidr
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: !Ref AllowedSshCidr
+      Description: Operator SSH
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Session Manager: shell access and the port-forward used to reach the
+        # MCP endpoint, without opening a single inbound port.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: engram-read-own-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Scoped to this stack's own parameter path so an operator can
+              # keep the embedding-provider key in SSM instead of in a file on
+              # the instance.
+              - Effect: Allow
+                Action: [ssm:GetParameter, ssm:GetParameters]
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/engram/${AWS::StackName}/*"
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!Ref SecurityGroup]
+      KeyName: !If [HasKeyName, !Ref KeyName, !Ref "AWS::NoValue"]
+      MetadataOptions:
+        HttpTokens: required          # IMDSv2 only
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref BrainVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - {Key: Name, Value: !Sub "${AWS::StackName}-engram"}
+
+Outputs:
+
+  InstanceId:
+    Description: Instance running the brain
+    Value: !Ref Instance
+
+  PortForwardCommand:
+    Description: >-
+      Run this locally, then point your agent at http://localhost:8080/sse.
+      The tunnel is the access path — there is no open port to reach instead.
+    Value: !Sub >-
+      aws ssm start-session --region ${AWS::Region} --target ${Instance}
+      --document-name AWS-StartPortForwardingSession
+      --parameters '{"portNumber":["8080"],"localPortNumber":["8080"]}'
+
+  IngestPortForwardCommand:
+    Description: >-
+      Tunnel for the Engram Capture browser extension. Run this, then set the
+      extension's endpoint to http://localhost:8081 — Chrome permits an
+      extension to post to localhost, so no public endpoint is needed.
+    Value: !Sub >-
+      aws ssm start-session --region ${AWS::Region} --target ${Instance}
+      --document-name AWS-StartPortForwardingSession
+      --parameters '{"portNumber":["8081"],"localPortNumber":["8081"]}'
+
+  IngestTokenCommand:
+    Description: >-
+      Read this instance's generated ingest token — paste it into the
+      extension's options page. Unique per instance; never leaves the box.
+    Value: sudo grep ENGRAM_INGEST_TOKEN /etc/engram/engram.env
+
+  RegisterWithClaudeCode:
+    Description: Attach a local Claude Code to the brain once the tunnel is up
+    Value: claude mcp add --transport sse engram http://localhost:8080/sse
+
+  ShellCommand:
+    Description: Shell on the instance without SSH
+    Value: !Sub "aws ssm start-session --region ${AWS::Region} --target ${Instance}"

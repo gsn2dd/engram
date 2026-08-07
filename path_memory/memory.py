@@ -2,7 +2,7 @@ import hashlib
 import re
 from typing import Optional, List, Dict, Any
 from .db import get_conn
-from .embed import embed_one
+from .embed import embed_one, active_model, assert_brain_compatible
 from .classify import classify_noun
 from .temporal import temporal_status
 
@@ -59,6 +59,7 @@ class Memory:
         import json
         text    = f"{person or ''} — {subject}\n\n{body}"
         vec     = embed_one(text)
+        model   = active_model()
         noun    = classify_noun(person, subject, body)
         vec_str = "[" + ",".join(str(x) for x in vec) + "]"
         nkey    = _make_node_key(person or '', subject, body) if person else None
@@ -66,16 +67,20 @@ class Memory:
 
         conn = get_conn()
         cur  = conn.cursor()
+        # Guard before the write, not after: a brain that already holds vectors
+        # from a different model must not silently acquire incomparable ones.
+        assert_brain_compatible(cur)
         cur.execute(
             """INSERT INTO memories
                    (person, subject, body, noun_type, node_type, node_key,
-                    source_links, origin, embedding, project, expires_at,
-                    temporal_anchor_start, temporal_anchor_end)
-               VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::vector,%s,%s,%s,%s)
+                    source_links, origin, embedding, embedding_model, project,
+                    expires_at, temporal_anchor_start, temporal_anchor_end)
+               VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::vector,%s,%s,%s,%s,%s)
                ON CONFLICT (node_key) DO UPDATE SET
                    body                   = EXCLUDED.body,
                    source_links           = EXCLUDED.source_links,
                    embedding              = EXCLUDED.embedding,
+                   embedding_model        = EXCLUDED.embedding_model,
                    project                = COALESCE(memories.project, EXCLUDED.project),
                    archived               = false,
                    temporal_anchor_start  = EXCLUDED.temporal_anchor_start,
@@ -83,7 +88,7 @@ class Memory:
                RETURNING id""",
             (person, subject, body, noun,
              node_type if node_type in NODE_TYPES else None,
-             nkey, links, origin, vec_str, project, expires_at,
+             nkey, links, origin, vec_str, model, project, expires_at,
              temporal_anchor_start, temporal_anchor_end),
         )
         memory_id = cur.fetchone()[0]

@@ -1,0 +1,204 @@
+#!/bin/bash
+# Engram AMI provisioning — turns a clean Amazon Linux 2023 instance into the
+# golden image published to AWS Marketplace.
+#
+# Runs ONCE, at build time, as root (delivered via EC2 user-data by
+# build-ami.sh). It must leave the box in a state that passes the AWS
+# Marketplace AMI scan:
+#
+#   - supported, patched OS (AL2023)
+#   - no password authentication
+#   - no baked-in credentials, keys, or history
+#   - no listening service reachable from the internet by default
+#
+# On success the script powers the instance off. `stopped` is the build
+# script's success signal — if provisioning fails the box stays UP so it can be
+# inspected. Do not "helpfully" add a shutdown to the failure path.
+
+set -euo pipefail
+
+ENGRAM_IMAGE="${ENGRAM_IMAGE:-ghcr.io/gsn2dd/engram:latest}"
+LOG=/var/log/engram-provision.log
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== engram provision starting $(date -u +%FT%TZ) — image ${ENGRAM_IMAGE}"
+
+# ---------------------------------------------------------------- packages ---
+dnf -y update
+dnf -y install docker jq
+systemctl enable docker
+systemctl start docker
+
+# Bake the image into the AMI so a customer's first boot has no dependency on
+# ghcr.io being reachable. A Marketplace instance that needs egress to start is
+# a support ticket waiting to happen.
+docker pull "${ENGRAM_IMAGE}"
+docker tag "${ENGRAM_IMAGE}" engram:baked
+
+# ------------------------------------------------------------ filesystem ----
+install -d -m 0700 /etc/engram
+install -d -m 0700 /var/lib/engram/pgdata
+
+# Record which image the AMI was built from — the Marketplace listing has to
+# state a version, and support questions start with "which build is this?".
+cat > /etc/engram/build-info <<EOF
+image=${ENGRAM_IMAGE}
+built_at=$(date -u +%FT%TZ)
+base=amazon-linux-2023
+EOF
+chmod 0644 /etc/engram/build-info
+
+# ------------------------------------------------------------- first boot ---
+# The published image ships a well-known Postgres password (pathpass) for local
+# `docker compose up` convenience. That is fine on a laptop and NOT fine in a
+# Marketplace AMI, where a shared default credential across every customer is a
+# hard policy failure. Generate a unique one on each customer's first boot.
+cat > /usr/local/bin/engram-firstboot.sh <<'FIRSTBOOT'
+#!/bin/bash
+set -euo pipefail
+ENV_FILE=/etc/engram/engram.env
+
+# Idempotent: only the very first boot after launch creates the config.
+if [ -f "$ENV_FILE" ]; then
+    echo "engram: config already present, nothing to do"
+    exit 0
+fi
+
+PG_PASS="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
+INGEST_TOKEN="$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 48)"
+
+cat > "$ENV_FILE" <<EOF
+# Generated on first boot — unique to this instance. Do not copy between hosts.
+POSTGRES_DB=pathmemoria
+POSTGRES_USER=pathuser
+POSTGRES_PASSWORD=${PG_PASS}
+
+# Ship a clean brain. The demo seed exists so "docker compose up" isn't an
+# empty box on a laptop; a customer's instance should start empty.
+ENGRAM_SEED_DEMO=0
+
+# Consolidation interval (seconds) for the decay/strengthen loop.
+ENGRAM_CONSOLIDATE_INTERVAL=3600
+
+# Bind address for the MCP endpoint. Loopback by default: the MCP server has
+# NO authentication of its own, so anything that can reach the port can read
+# and write the whole brain. Reach it over an SSM port-forward or an SSH
+# tunnel. Change this only behind something that does authenticate.
+ENGRAM_BIND=127.0.0.1
+
+# Ingest endpoint for the Engram Capture browser extension. This token IS the
+# credential the extension sends — unique to this instance, generated here.
+# Read it back with:  sudo grep ENGRAM_INGEST_TOKEN /etc/engram/engram.env
+ENGRAM_INGEST_TOKEN=${INGEST_TOKEN}
+ENGRAM_INGEST_PORT=8081
+
+# Unlike the MCP port this endpoint DOES authenticate, so it is the one that
+# may reasonably be exposed — but only behind TLS. A bearer token over plain
+# HTTP on a public interface is a token in cleartext. Loopback by default;
+# reach it through the same SSM port-forward and point the extension at
+# http://localhost:8081.
+ENGRAM_INGEST_BIND=127.0.0.1
+
+# Embedding provider key. Left empty deliberately — the customer supplies it.
+# Prefer putting it in SSM Parameter Store and letting the unit fetch it.
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+EOF
+chmod 0600 "$ENV_FILE"
+echo "engram: generated instance-unique database credentials"
+FIRSTBOOT
+chmod 0755 /usr/local/bin/engram-firstboot.sh
+
+# --------------------------------------------------------------- runtime ----
+# A wrapper rather than a long ExecStart: the bind address has to be read from
+# config at start time, and systemd's variable expansion inside a larger
+# argument is a well-known source of silent breakage.
+cat > /usr/local/bin/engram-run.sh <<'RUNNER'
+#!/bin/bash
+set -euo pipefail
+# shellcheck disable=SC1091
+set -a; . /etc/engram/engram.env; set +a
+
+BIND="${ENGRAM_BIND:-127.0.0.1}"
+INGEST_BIND="${ENGRAM_INGEST_BIND:-127.0.0.1}"
+
+exec /usr/bin/docker run --rm --name engram \
+    --env-file /etc/engram/engram.env \
+    -v /var/lib/engram/pgdata:/var/lib/postgresql/data \
+    -p "${BIND}:8080:8080" \
+    -p "${INGEST_BIND}:8081:8081" \
+    --health-cmd 'python3 -c "import socket,sys; s=socket.create_connection((\"127.0.0.1\",8080),2); s.close()" || exit 1' \
+    --health-interval 30s \
+    engram:baked
+RUNNER
+chmod 0755 /usr/local/bin/engram-run.sh
+
+cat > /etc/systemd/system/engram-firstboot.service <<'EOF'
+[Unit]
+Description=Engram first-boot configuration (instance-unique credentials)
+After=network-online.target
+Wants=network-online.target
+Before=engram.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/engram-firstboot.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/engram.service <<'EOF'
+[Unit]
+Description=Engram — persistent memory brain for AI agents
+Requires=docker.service engram-firstboot.service
+After=docker.service engram-firstboot.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f engram
+ExecStart=/usr/local/bin/engram-run.sh
+ExecStop=/usr/bin/docker stop -t 30 engram
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable engram-firstboot.service engram.service
+
+# --------------------------------------------------------------- hardening --
+# AL2023 already defaults to key-only SSH; state it explicitly so the scan sees
+# it and so a future base-image change can't silently regress it.
+cat > /etc/ssh/sshd_config.d/60-engram-hardening.conf <<'EOF'
+PasswordAuthentication no
+PermitRootLogin no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+EOF
+
+# Postgres is reachable only from inside the container network. Nothing should
+# publish 5432, but make the intent explicit for anyone reading the image.
+echo "# engram: 5432 is deliberately never published outside the container" \
+    > /etc/engram/PORTS
+
+# ----------------------------------------------------------------- cleanup ---
+# Everything below exists to make the snapshot clean. A Marketplace AMI that
+# ships an authorized_keys file or a build log with an account id in it fails
+# review.
+cloud-init clean --logs || true
+rm -rf /var/lib/cloud/instances/* /var/lib/cloud/data/*
+rm -f /home/ec2-user/.ssh/authorized_keys /root/.ssh/authorized_keys
+rm -f /home/ec2-user/.bash_history /root/.bash_history
+rm -f /etc/ssh/ssh_host_*                       # regenerated on first boot
+rm -rf /var/log/engram-provision.log
+find /var/log -type f -exec truncate -s 0 {} \; || true
+dnf clean all
+
+sync
+echo "=== engram provision complete — powering off (this is the success signal)"
+shutdown -h now

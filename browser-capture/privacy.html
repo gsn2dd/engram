@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engram Capture — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 44rem; margin: 0 auto; padding: 2rem 1.25rem 4rem;
+         font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 1.75rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.25rem; }
+  .updated { color: #666; margin-top: 0; }
+  code { background: rgba(127,127,127,.15); padding: .1em .35em; border-radius: 3px; }
+  li { margin: .35rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Engram Capture — Privacy Policy</h1>
+<p class="updated">Last updated: 7 August 2026</p>
+
+<p><strong>Engram Capture does not collect your data. There is no Engram server,
+no account, and no third party.</strong> The extension sends your conversations
+to one place: an endpoint address that you type in yourself, on a server you
+control.</p>
+
+<h2>What the extension reads</h2>
+<p>When enabled, Engram Capture reads the text of conversations on the pages you
+are already viewing, on these sites only:</p>
+<ul>
+  <li><code>claude.ai</code></li>
+  <li><code>chatgpt.com</code></li>
+  <li><code>chat.openai.com</code></li>
+</ul>
+<p>It reads the prompt and the reply, the page title, and the page URL. It does
+not read any other site, and it injects no code anywhere else.</p>
+
+<h2>Where that text goes</h2>
+<p>To the HTTPS endpoint you configure on the extension's options page, using a
+bearer token you also supply, and nowhere else. If you configure no endpoint,
+nothing is ever transmitted.</p>
+<p>The developer operates no collection service and receives none of your data.
+There is no analytics, no telemetry, no tracking, no advertising, and no
+error-reporting service.</p>
+
+<h2>What is removed before sending</h2>
+<p>Before any text leaves your browser, the extension strips credential-shaped
+strings — API keys, bearer tokens, and private keys. This is a safety net, not a
+guarantee: treat it as a second line of defence rather than a reason to paste
+secrets into a chat window.</p>
+
+<h2>What is stored in your browser</h2>
+<p>Using <code>chrome.storage</code>, on your machine only: your endpoint URL,
+your bearer token, your contributor name, and your per-site on/off toggles. The
+<code>alarms</code> permission is used solely to retry an upload that did not
+complete before a tab closed.</p>
+
+<h2>Data sharing and sale</h2>
+<ul>
+  <li>Your data is <strong>not sold</strong> to anyone.</li>
+  <li>Your data is <strong>not transferred</strong> for any purpose unrelated to
+      the extension's single purpose.</li>
+  <li>Your data is <strong>not used</strong> to determine creditworthiness or for
+      lending.</li>
+</ul>
+
+<h2>Deleting your data</h2>
+<p>The developer holds nothing to delete. Captured conversations live on your own
+server; remove them there. To clear the extension's local settings, remove the
+extension from Chrome.</p>
+
+<h2>Permissions, and why each is needed</h2>
+<ul>
+  <li><strong>storage</strong> — saves your endpoint, token and toggles locally.</li>
+  <li><strong>alarms</strong> — retries an interrupted upload.</li>
+  <li><strong>host access to the three AI sites</strong> — reading conversation
+      text on exactly those sites is the extension's entire function.</li>
+  <li><strong>optional host access</strong> — requested only for the endpoint
+      address you enter, so the extension may post to it. Granted by you at the
+      moment you save your settings.</li>
+</ul>
+
+<h2>Contact</h2>
+<p>Engram is open source: <a href="https://github.com/gsn2dd/engram">github.com/gsn2dd/engram</a>.
+Questions and issues can be raised there.</p>
+
+</body>
+</html>

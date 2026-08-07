@@ -12,6 +12,19 @@ export DB_NAME="${POSTGRES_DB}" DB_USER="${POSTGRES_USER}" DB_PASS="${POSTGRES_P
 python3 mcp_server.py &
 APP_PID=$!
 
+# Ingest endpoint for the Engram Capture browser extension. Starts ONLY when a
+# token is set — an unauthenticated ingest surface must never appear by default.
+# This is the endpoint a customer's extension points at; without it the
+# extension has nothing to talk to but a private, hand-built AWS pipeline.
+if [ -n "${ENGRAM_INGEST_TOKEN:-}" ]; then
+  echo "Starting Engram ingest endpoint on :${ENGRAM_INGEST_PORT:-8081}"
+  python3 ingest_server.py &
+  INGEST_PID=$!
+else
+  echo "ENGRAM_INGEST_TOKEN unset — browser-capture ingest endpoint disabled"
+  INGEST_PID=""
+fi
+
 # Optionally seed a small demo brain on first boot, so "try it" isn't an empty
 # box. Idempotent + uses your keys. Set ENGRAM_SEED_DEMO=0 for a clean brain.
 if [ "${ENGRAM_SEED_DEMO:-0}" = "1" ] || [ "${ENGRAM_SEED_DEMO:-0}" = "true" ]; then
@@ -29,4 +42,6 @@ fi
   done
 ) &
 
-wait -n "$PG_PID" "$APP_PID"
+# Exit if any of the long-lived services dies, so Docker's restart policy sees
+# the failure instead of the container limping on with a dead component.
+wait -n "$PG_PID" "$APP_PID" ${INGEST_PID:+"$INGEST_PID"}
