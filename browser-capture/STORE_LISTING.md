@@ -76,12 +76,16 @@ an HTTPS-to-HTTP downgrade that is worth fixing in the Apache config, but the
 - [ ] Decide the publisher identity: personal name or a trading name. It is shown
       on the listing and is awkward to change later
 
-## 2. Assets still needed
-- [ ] **Screenshots** — 1280×800 or 640×400, at least one, up to five. Obvious
-      set: the options page with an endpoint configured, and a captured
-      conversation visible in engram
-- [ ] **Small promo tile** — 440×280 PNG
-- [ ] Store icon 128×128 — already in `icons/icon128.png`
+## 2. Assets
+- [x] **Screenshot** — `store-assets/screenshot-1-options-1280x800.png`. The real
+      options page rendered headlessly, showing the AMI's default configuration
+      (loopback endpoint through the SSM tunnel) with a placeholder token.
+- [x] **Small promo tile** — `store-assets/promo-tile-440x280.png`
+- [x] Store icon 128×128 — `icons/icon128.png`
+- [ ] **Optional but better:** a second screenshot taken in a real Chrome with
+      the extension installed and a capture actually landing. A genuine in-use
+      shot is more persuasive to a reviewer than a rendered options page, and
+      it is a two-minute job on a machine with the extension loaded.
 
 ## 3. Pre-submit verification
 - [x] Privacy policy live and reachable over HTTPS
