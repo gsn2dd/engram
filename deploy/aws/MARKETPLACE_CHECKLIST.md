@@ -59,19 +59,38 @@ Say this plainly rather than letting a customer discover it:
 
 ## 4. Smoke test before submitting
 
-Launch `cloudformation/engram.yaml` against a fresh build and confirm:
+`./smoke-test.sh` automates this — run it on the instance via Session Manager
+(see the header of that file for the exact invocation).
 
-- [ ] `systemctl is-active engram` reports active within ~2 minutes of boot
-- [ ] `/etc/engram/engram.env` exists, mode `0600`, and the password is **not**
-      `pathpass`
-- [ ] Two instances from the same AMI have **different** generated passwords —
-      the single most important check here, and the easiest to get wrong
-- [ ] The brain starts **empty** (no demo seed)
-- [ ] SSM port-forward works, and `claude mcp add --transport sse engram
-      http://localhost:8080/sse` connects and lists 6 tools
-- [ ] `remember` then `recall` round-trips
-- [ ] Reboot: the brain survives, and first-boot config is **not** regenerated
-- [ ] `nmap` from another host in the VPC shows no open port
+**Verified 2026-08-07 on `ami-0721a41e97e07dabb`, 18/18 on two instances:**
+
+- [x] `engram.service` active AND stable — restart count and container age are
+      both checked. "Active" alone is not enough: an earlier run reported 13
+      passes against a container restarting every 10 seconds
+- [x] `/etc/engram/engram.env` exists, mode `0600`, password is **not** `pathpass`
+- [x] Two instances have **different** credentials — the single most important
+      check here. Instance A `fb2cf150…`/`5391bf7a…` vs B `ea6eee23…`/`fb4efa6b…`,
+      all four distinct
+- [x] The brain starts **empty** (no demo seed)
+- [x] Postgres 5432 not publicly bound; 8080 and 8081 loopback-only
+- [x] Ingest endpoint: health 200, no-token 401, instance-token 200
+- [x] Reboot: brain survives, and the env-file hash is **unchanged** — first
+      boot is genuinely idempotent, not just "seems to work"
+- [x] No stale `authorized_keys`; password authentication disabled
+- [ ] `nmap` from another host in the VPC shows no open port — not yet done
+- [ ] `remember`/`recall` round-trip through MCP on a launched instance. The
+      full ingest→embed→store chain was proven locally, but an instance needs a
+      customer-supplied embedding key to do it, so it is untested on the AMI
+
+## 4a. Known gaps to close before listing
+
+- **No embedding key delivery.** `engram.env` ships empty `ANTHROPIC_API_KEY` /
+  `OPENAI_API_KEY` fields and the comment recommends SSM Parameter Store. The
+  IAM role already grants read on `/engram/<stack>/*` — but nothing actually
+  fetches from it. Today a customer must hand-edit the env file and restart.
+  That is a poor first hour for a paid product.
+- **No authentication on the MCP surface.** It is why 8080 must stay on
+  loopback. `ingest_server.py` now has a working bearer-token pattern to copy.
 
 ## 5. Listing content
 
