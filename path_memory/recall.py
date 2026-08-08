@@ -98,7 +98,12 @@ def _collapse_field(scored, limit, min_gap=0.18, min_keep=1):
     """
     window = scored[: limit + 1] if len(scored) > limit else list(scored)
     if len(window) <= min_keep:
-        return scored[:limit]
+        # Must return the same (results, gap) shape as every other exit. This
+        # path is the empty or single-result brain — i.e. a new user's very
+        # first query — and returning a bare list here made collapse raise
+        # ValueError on it. There is no field to resolve with one candidate, so
+        # the gap is None: nothing was cut, nothing is worth naming.
+        return scored[:limit], None
 
     vals = [r["score"] for r in window]
     hi, lo = vals[0], vals[-1]

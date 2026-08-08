@@ -206,7 +206,16 @@ ALTER TABLE memories ADD COLUMN IF NOT EXISTS derived_depth integer DEFAULT 0;
 CREATE INDEX IF NOT EXISTS memories_origin_recycle_idx
     ON memories(origin) WHERE origin = 'recycle';
 
-ALTER TABLE memories ADD CONSTRAINT memories_node_key_uniq UNIQUE (node_key);
+-- Postgres has no ADD CONSTRAINT IF NOT EXISTS, so a bare ALTER here made the
+-- whole file fail on its second run — while the comments above promise that
+-- re-running it upgrades an existing brain. That is the documented upgrade
+-- path, and it aborted at this line before reaching anything after it.
+DO $$ BEGIN
+    ALTER TABLE memories ADD CONSTRAINT memories_node_key_uniq UNIQUE (node_key);
+EXCEPTION
+    WHEN duplicate_table THEN NULL;
+    WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX IF NOT EXISTS memories_node_type_idx ON memories(node_type) WHERE node_type IS NOT NULL;
 CREATE INDEX IF NOT EXISTS memories_origin_idx    ON memories(origin);
 

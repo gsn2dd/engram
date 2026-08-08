@@ -138,6 +138,21 @@ class TestBestOfBoth(unittest.TestCase):
         self.assertTrue(any(not r.get("serendipity") for r in creative),
                         "creativity must still keep precise results (incl. the top hit)")
 
+    def test_collapse_survives_an_almost_empty_brain(self):
+        # A new user's first query runs against 0 then 1 memories. _collapse_field
+        # has an early return for that case which once returned a bare list while
+        # every other exit returned (results, gap) — so collapse raised
+        # ValueError on exactly the first thing anyone does.
+        empty = recall("nothing has been stored yet", person="nobody-here",
+                       limit=5, collapse=True, increment_weight=False)
+        self.assertEqual(empty, [], "collapse on an empty brain must return [], not raise")
+
+        Memory.save("lone note", "The only memory in this corner of the brain, about sailing.",
+                    person=self.ENT, project="lonely", perspectives=False)
+        one = recall("sailing", person=self.ENT, project="lonely", limit=5,
+                     collapse=True, increment_weight=False)
+        self.assertEqual(len(one), 1, "collapse with a single candidate must return it, not raise")
+
     def test_collapse_keeps_the_boundary_it_resolved(self):
         # The point of the feature: a resolution that used to be discarded is
         # kept, so the second identical question reuses the doorway instead of
