@@ -4,7 +4,7 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "engram"
-version = "0.1.0"
+version = "0.4.0"
 description = "An open-source memory brain for AI agents — fan-out perspectives plus an association graph whose weights emerge from how memories get used."
 readme = "README.md"
 license = { text = "MIT" }
