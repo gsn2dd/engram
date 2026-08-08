@@ -302,6 +302,44 @@ class TestSummaryFreshness(unittest.TestCase):
         self.assertEqual(mine, [],
                          "a topic whose membership has not changed must not be re-summarised")
 
+    def test_member_selection_is_deterministic(self):
+        # Members are chosen "top 30 by weight", and on a young brain every
+        # weight is equal — so without a tiebreak the database returns an
+        # arbitrary 30 in an arbitrary order, a different SET each run. The
+        # freshness test then always sees a change and re-summarises. This was
+        # found on the live brain as three identical summaries of one topic in
+        # three consecutive runs.
+        self.cur.execute(
+            "INSERT INTO projects (slug, display_name) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+            (self.P, self.P))
+        self.cur.execute(
+            "INSERT INTO topics (project, slug, label, source) VALUES (%s,%s,%s,'discovered')",
+            (self.P, self.SLUG, "some subject"))
+        for i in range(40):
+            self.cur.execute(
+                """INSERT INTO memories (subject, body, project, origin, weight)
+                   VALUES (%s,%s,%s,'contribution',0) RETURNING id""",
+                (f"member {i}", f"Body {i}.", self.P))
+            self.cur.execute(
+                """INSERT INTO memory_topics (memory_id, project, slug, confidence, assigned_by)
+                   VALUES (%s,%s,%s,1.0,'read')""",
+                (self.cur.fetchone()[0], self.P, self.SLUG))
+        self.conn.commit()
+
+        def members():
+            self.cur.execute(
+                """SELECT m.id FROM memories m
+                   JOIN memory_topics mt ON mt.memory_id = m.id
+                   WHERE mt.project = %s AND mt.slug = %s AND NOT m.archived
+                     AND m.origin IS DISTINCT FROM 'recycle'
+                     AND coalesce(m.derived_depth,0) < %s
+                   ORDER BY m.weight DESC NULLS LAST, m.id ASC LIMIT 30""",
+                (self.P, self.SLUG, dream.MAX_DERIVED_DEPTH))
+            return [r[0] for r in self.cur.fetchall()]
+
+        self.assertEqual(members(), members(),
+                         "the same unchanged topic must select the same members every time")
+
 
 if __name__ == "__main__":
     unittest.main()

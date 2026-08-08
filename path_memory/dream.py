@@ -542,11 +542,18 @@ def summarise_topics(cur, budget: _Budget, limit: int = 3) -> List[Dict]:
                WHERE mt.project = %s AND mt.slug = %s AND NOT m.archived
                  AND m.origin IS DISTINCT FROM 'recycle'
                  AND coalesce(m.derived_depth,0) < %s
-               ORDER BY m.weight DESC NULLS LAST LIMIT 30""",
+               ORDER BY m.weight DESC NULLS LAST, m.id ASC LIMIT 30""",
             (proj, slug, MAX_DERIVED_DEPTH))
         rows = cur.fetchall()
         if len(rows) < MIN_CLUSTER:
             continue
+        # The id tiebreak above is what makes the freshness test below mean
+        # anything. On a young brain most weights are equal, so "top 30 by
+        # weight" was an arbitrary 30 that came back in a different order — and
+        # therefore as a different SET — on every run. The pass re-summarised
+        # the same unchanged topic each hour and chained supersessions behind
+        # it: three identical "Topic summary: intgen" memories in three runs on
+        # the live brain, which is how this was found.
         member_ids = [r[0] for r in rows]
         # Compare the actual membership, not a count. The count test compared
         # every tagged row (unbounded, and including the previous summary's own
