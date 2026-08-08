@@ -120,7 +120,7 @@ RUN_ARGS=(
     --image-id "$BASE_AMI"
     --instance-type "$INSTANCE_TYPE"
     --subnet-id "$SUBNET_ID"
-    --user-data "file://${USER_DATA}"
+    --user-data "fileb://${USER_DATA}"
     --metadata-options "HttpTokens=required,HttpEndpoint=enabled"
     --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":20,"VolumeType":"gp3","Encrypted":true,"DeleteOnTermination":true}}]'
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${AMI_NAME}-builder},{Key=engram:role,Value=ami-builder}]"
