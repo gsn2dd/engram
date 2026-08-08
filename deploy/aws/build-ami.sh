@@ -83,6 +83,23 @@ BASE_AMI="$(aws ssm get-parameters \
     --query 'Parameters[0].Value' --output text)"
 echo "==> base AMI: ${BASE_AMI}"
 
+# The env-file heredoc in provision.sh is UNQUOTED so the generated secrets
+# expand into it — which means any other ${...} in that block (a comment, a
+# documentation example) detonates as an unbound variable at CUSTOMER first
+# boot, under set -u, where no build-time check ever sees it. That exact bug
+# shipped once: a comment reading "${ENGRAM_SSM_PREFIX}/<NAME>" killed first
+# boot on every instance of an otherwise-good AMI. Whitelist the intended
+# expansions; anything else stops the build here, where it is cheap.
+BAD_EXPANSIONS="$(awk '/cat > "\$ENV_FILE" <<EOF/,/^EOF$/' "${HERE}/provision.sh" \
+    | grep -o '\${[A-Za-z_][A-Za-z_0-9]*}' \
+    | grep -vE '^\$\{(PG_PASS|INGEST_TOKEN|MCP_TOKEN|SSM_PREFIX)\}$' || true)"
+if [ -n "$BAD_EXPANSIONS" ]; then
+    echo "ERROR: unintended expansion(s) in the engram.env heredoc:" >&2
+    echo "$BAD_EXPANSIONS" >&2
+    echo "These would fail first boot with 'unbound variable'. Escape or remove them." >&2
+    exit 1
+fi
+
 USER_DATA="$(mktemp)"
 trap 'rm -f "$USER_DATA"' EXIT
 {

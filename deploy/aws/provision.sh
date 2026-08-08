@@ -121,7 +121,7 @@ ENGRAM_INGEST_BIND=127.0.0.1
 
 # Where to look for keys in AWS Parameter Store. Set this and engram fetches
 # GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / ENGRAM_EMBED_PROVIDER
-# from ${ENGRAM_SSM_PREFIX}/<NAME> at every start, into memory only — the secret
+# from <prefix>/<NAME> at every start, into memory only — the secret
 # never touches this disk and never enters an EBS snapshot. Empty = use the keys
 # written below instead.
 ENGRAM_SSM_PREFIX=${SSM_PREFIX}
