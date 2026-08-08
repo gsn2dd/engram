@@ -181,6 +181,33 @@ else
 fi
 
 echo
+echo "-- claude code installer"
+
+# The full install is exercised for real: node from dnf, the package from npm,
+# MCP registration against the live gate with the instance token. This gates a
+# release on npm being reachable, deliberately — a customer's first hour does
+# exactly this, so if it does not work now it does not work for them.
+if [ -x /usr/local/bin/install_claude_code ]; then
+    ok "install_claude_code is present"
+    if runuser -l ec2-user -c 'install_claude_code' >/tmp/cc-install.log 2>&1; then
+        ok "installer completed"
+        v="$(runuser -l ec2-user -c 'claude --version' 2>/dev/null || true)"
+        [ -n "$v" ] && ok "claude runs (${v})" || bad "claude not runnable after install"
+        if runuser -l ec2-user -c 'claude mcp list' 2>/dev/null | grep -q engram; then
+            ok "brain registered as MCP server 'engram'"
+        else
+            bad "engram missing from claude mcp list"
+        fi
+        [ -s /home/ec2-user/.claude/CLAUDE.md ] && ok "agent prompt seeded"                                                 || bad "no ~/.claude/CLAUDE.md after install"
+    else
+        bad "installer failed (tail of /tmp/cc-install.log):"
+        tail -5 /tmp/cc-install.log | sed 's/^/  ---   /'
+    fi
+else
+    bad "install_claude_code missing from the image"
+fi
+
+echo
 echo "-- brain state"
 
 empty="$(docker exec engram psql -U pathuser -d pathmemoria -At \

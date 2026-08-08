@@ -107,6 +107,17 @@ $( [ "$EMBED" = set ] && echo "
   anything": the tools are present, but a model does not reach for a memory
   it was never told it has.
 
+  ── 2b. NO AGENT YET? INSTALL CLAUDE CODE HERE (optional) ──────────────────
+
+  One command installs Claude Code on this instance and wires it to the brain
+  (MCP registration with this instance's token, agent prompt in place):
+
+    install_claude_code
+
+  Installed from npm at your request — Anthropic's terms apply to you
+  directly; nothing of theirs ships inside this image. You need a Claude
+  subscription or API key to sign in.
+
   ── 3. CAPTURE CONVERSATIONS AUTOMATICALLY (optional) ──────────────────────
 
   The Engram Capture browser extension records your claude.ai and ChatGPT

@@ -153,6 +153,10 @@ install -m 0755 /tmp/engram-help.sh /usr/local/bin/engram-help 2>/dev/null || \
     echo "engram: help command not staged" >&2
 install -m 0644 /tmp/engram-aliases.sh /etc/profile.d/engram-aliases.sh 2>/dev/null || \
     echo "engram: aliases not staged" >&2
+# Claude Code is installed ON DEMAND by the customer, never baked into the
+# image — the script's header explains the licensing reasoning.
+install -m 0755 /tmp/engram-claude-code.sh /usr/local/bin/install_claude_code 2>/dev/null || \
+    echo "engram: claude-code installer not staged" >&2
 
 # --------------------------------------------------------------- runtime ----
 # A wrapper rather than a long ExecStart: the bind address has to be read from
