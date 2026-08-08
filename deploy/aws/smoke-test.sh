@@ -45,14 +45,28 @@ else
     echo "  ---   journalctl -u engram.service -n 40"
 fi
 
-# Independent of systemd's view: has one container actually stayed up?
+# Independent of systemd's view: has ONE container actually stayed up 60s?
+# On a fresh boot the container can legitimately be younger than that when the
+# test lands (an automated runner reaches here ~40s after launch), so a young
+# container is not a verdict — wait out the remainder and look again. What
+# distinguishes "young because the instance is young" from "young because it
+# keeps dying" is whether StartedAt is the SAME timestamp after the wait: a
+# restart resets it, and that still fails.
 uptime_s="$(docker inspect engram --format '{{.State.StartedAt}}' 2>/dev/null)"
 if [ -n "$uptime_s" ]; then
     started=$(date -d "$uptime_s" +%s 2>/dev/null || echo 0)
-    now=$(date +%s)
-    age=$(( now - started ))
-    [ "$age" -ge 60 ] && ok "container has been up ${age}s" \
-                      || bad "container is only ${age}s old — restarting?"
+    age=$(( $(date +%s) - started ))
+    if [ "$age" -lt 60 ]; then
+        sleep $(( 60 - age + 5 ))
+        uptime_2="$(docker inspect engram --format '{{.State.StartedAt}}' 2>/dev/null)"
+        if [ "$uptime_2" = "$uptime_s" ]; then
+            age=$(( $(date +%s) - started ))
+        else
+            age=0    # a different StartedAt means it died and came back
+        fi
+    fi
+    [ "$age" -ge 60 ] && ok "one container has been up ${age}s" \
+                      || bad "container restarted during the observation window"
 else
     bad "no running engram container"
 fi
