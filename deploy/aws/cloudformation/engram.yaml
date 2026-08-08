@@ -203,9 +203,19 @@ Outputs:
       extension's options page. Unique per instance; never leaves the box.
     Value: sudo grep ENGRAM_INGEST_TOKEN /etc/engram/engram.env
 
+  McpTokenCommand:
+    Description: >-
+      Read this instance's generated MCP bearer token — every MCP client must
+      send it as an Authorization header. Unique per instance.
+    Value: sudo grep ENGRAM_MCP_TOKEN /etc/engram/engram.env
+
   RegisterWithClaudeCode:
-    Description: Attach a local Claude Code to the brain once the tunnel is up
-    Value: claude mcp add --transport sse engram http://localhost:8080/sse
+    Description: >-
+      Attach a local Claude Code to the brain once the tunnel is up
+      (substitute the token from McpTokenCommand)
+    Value: >-
+      claude mcp add --transport sse engram http://localhost:8080/sse
+      --header "Authorization: Bearer <token>"
 
   ShellCommand:
     Description: Shell on the instance without SSH

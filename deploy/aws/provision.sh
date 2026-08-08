@@ -70,6 +70,7 @@ SSM_PREFIX="$(cat /etc/engram/ssm-prefix 2>/dev/null || true)"
 
 PG_PASS="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
 INGEST_TOKEN="$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 48)"
+MCP_TOKEN="$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 48)"
 
 cat > "$ENV_FILE" <<EOF
 # Generated on first boot — unique to this instance. Do not copy between hosts.
@@ -92,10 +93,17 @@ ENGRAM_SEED_STARTER=1
 # Consolidation interval (seconds) for the decay/strengthen loop.
 ENGRAM_CONSOLIDATE_INTERVAL=3600
 
-# Bind address for the MCP endpoint. Loopback by default: the MCP server has
-# NO authentication of its own, so anything that can reach the port can read
-# and write the whole brain. Reach it over an SSM port-forward or an SSH
-# tunnel. Change this only behind something that does authenticate.
+# The MCP endpoint requires this bearer token — unique to this instance,
+# generated here. Attach your agent with:
+#     headers: { "Authorization": "Bearer <token>" }
+# Read it back with:  sudo grep ENGRAM_MCP_TOKEN /etc/engram/engram.env
+# Blank it to run the endpoint open, which is only safe on loopback.
+ENGRAM_MCP_TOKEN=${MCP_TOKEN}
+
+# Bind address for the MCP endpoint. Loopback by default even WITH the token:
+# a bearer token over plain HTTP on a public interface is a credential in
+# cleartext. Reach it over an SSM port-forward or an SSH tunnel, and move off
+# loopback only behind TLS (a reverse proxy terminating HTTPS).
 ENGRAM_BIND=127.0.0.1
 
 # Ingest endpoint for the Engram Capture browser extension. This token IS the

@@ -78,9 +78,15 @@ $( [ "$EMBED" = set ] && echo "
 
   ── 2. CONNECT AN AGENT ────────────────────────────────────────────────────
 
-  Port 8080 is closed to the network on purpose: the MCP endpoint has NO
-  authentication, so anything that can reach it can read and write the whole
-  brain. The tunnel is the access control. Do not open the port.
+  The MCP endpoint requires this instance's bearer token (generated on first
+  boot, unique to this machine):
+
+    sudo grep ENGRAM_MCP_TOKEN /etc/engram/engram.env
+
+  Port 8080 is still closed to the network on purpose: the token authenticates
+  the caller, but over plain HTTP it would travel in cleartext, so it is only
+  as private as the wire. The tunnel keeps the wire private. Do not open the
+  port unless you put TLS in front.
 
   From YOUR machine (not this box):
 
@@ -88,11 +94,13 @@ $( [ "$EMBED" = set ] && echo "
       --document-name AWS-StartPortForwardingSession \\
       --parameters '{"portNumber":["8080"],"localPortNumber":["8080"]}'
 
-  Then attach whichever agent you use:
+  Then attach whichever agent you use, sending the token as a header:
 
-    Claude Code   claude mcp add --transport sse engram http://localhost:8080/sse
-    OpenClaw      openclaw mcp set engram '{"url":"http://localhost:8080/sse"}'
-    Anything MCP  point it at http://localhost:8080/sse
+    Claude Code   claude mcp add --transport sse engram http://localhost:8080/sse \\
+                    --header "Authorization: Bearer <token>"
+    OpenClaw      openclaw mcp set engram \\
+                    '{"url":"http://localhost:8080/sse","headers":{"Authorization":"Bearer <token>"}}'
+    Anything MCP  http://localhost:8080/sse + an Authorization: Bearer header
 
   THEN paste the block from AGENT_PROMPT.md into your agent's system prompt.
   Skipping this is the most common reason people think engram "isn't doing

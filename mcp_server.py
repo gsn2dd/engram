@@ -105,6 +105,36 @@ def supersede(old_id: int, new_id: int) -> dict:
 
 
 if __name__ == "__main__":
+    import sys
+
     # SSE transport — widest client compatibility (works with OpenClaw's gateway
     # and embedded modes, and older MCP clients). Serves /sse + /messages.
-    mcp.run(transport="sse")
+    #
+    # ENGRAM_MCP_TOKEN turns on bearer-token auth for the whole endpoint. This
+    # is the long-recorded blocking feature: without it the server trusts
+    # anything that can reach the port, which confines every deployment to
+    # loopback + tunnel forever. With a token set, clients attach with
+    #     headers: { "Authorization": "Bearer <token>" }
+    # (Claude Code, OpenClaw and the MCP SDKs all support SSE headers.)
+    #
+    # No token keeps the historical behaviour so existing local setups do not
+    # break — but that mode is only safe on loopback, and says so.
+    token = os.environ.get("ENGRAM_MCP_TOKEN", "").strip()
+    if token:
+        # Same floor as the ingest server: a short token invites brute force,
+        # and refusing to start is louder than quietly accepting a weak secret.
+        if len(token) < 24:
+            print("[engram] refusing to start: ENGRAM_MCP_TOKEN is shorter than 24 chars",
+                  file=sys.stderr, flush=True)
+            sys.exit(1)
+        import uvicorn
+
+        from authgate import BearerGate
+
+        print("[engram] MCP endpoint requires a bearer token", file=sys.stderr, flush=True)
+        uvicorn.run(BearerGate(mcp.sse_app(), token),
+                    host=mcp.settings.host, port=mcp.settings.port)
+    else:
+        print("[engram] ENGRAM_MCP_TOKEN not set — MCP endpoint is UNAUTHENTICATED; "
+              "keep it on loopback (see deploy docs)", file=sys.stderr, flush=True)
+        mcp.run(transport="sse")
