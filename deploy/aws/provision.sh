@@ -64,6 +64,10 @@ if [ -f "$ENV_FILE" ]; then
     exit 0
 fi
 
+# CloudFormation drops the parameter path here via UserData. Standalone
+# launches have no such file, and simply run without SSM.
+SSM_PREFIX="$(cat /etc/engram/ssm-prefix 2>/dev/null || true)"
+
 PG_PASS="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
 INGEST_TOKEN="$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 48)"
 
@@ -107,15 +111,38 @@ ENGRAM_INGEST_PORT=8081
 # http://localhost:8081.
 ENGRAM_INGEST_BIND=127.0.0.1
 
-# Embedding provider key. Left empty deliberately — the customer supplies it.
-# Prefer putting it in SSM Parameter Store and letting the unit fetch it.
-ANTHROPIC_API_KEY=
+# Where to look for keys in AWS Parameter Store. Set this and engram fetches
+# GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / ENGRAM_EMBED_PROVIDER
+# from ${ENGRAM_SSM_PREFIX}/<NAME> at every start, into memory only — the secret
+# never touches this disk and never enters an EBS snapshot. Empty = use the keys
+# written below instead.
+ENGRAM_SSM_PREFIX=${SSM_PREFIX}
+
+# Embedding provider key. Left empty deliberately — the customer supplies one,
+# either here or (preferred) via ENGRAM_SSM_PREFIX above. WITHOUT ONE, NOTHING
+# CAN BE STORED: embedding is what turns a memory into something recallable.
+GEMINI_API_KEY=
 OPENAI_API_KEY=
+
+# Optional. Enables subject classification, multi-angle indexing and the
+# consolidation pass. Engram stores and recalls without it.
+ANTHROPIC_API_KEY=
 EOF
 chmod 0600 "$ENV_FILE"
 echo "engram: generated instance-unique database credentials"
 FIRSTBOOT
 chmod 0755 /usr/local/bin/engram-firstboot.sh
+
+# Key fetch + login message. Written from the files kept in the repo so they are
+# reviewable and diffable rather than buried in a heredoc.
+install -m 0755 /tmp/engram-fetch-keys.sh /usr/local/bin/engram-fetch-keys.sh 2>/dev/null || \
+    echo "engram: fetch-keys helper not staged; SSM key loading unavailable" >&2
+install -m 0755 /tmp/engram-welcome.sh /etc/profile.d/engram-welcome.sh 2>/dev/null || \
+    echo "engram: welcome message not staged" >&2
+# The full guide is a command, not a banner: printed on demand, so the login
+# message can stay short enough that people keep reading it.
+install -m 0755 /tmp/engram-help.sh /usr/local/bin/engram-help 2>/dev/null || \
+    echo "engram: help command not staged" >&2
 
 # --------------------------------------------------------------- runtime ----
 # A wrapper rather than a long ExecStart: the bind address has to be read from
@@ -127,11 +154,19 @@ set -euo pipefail
 # shellcheck disable=SC1091
 set -a; . /etc/engram/engram.env; set +a
 
+# Pull keys from Parameter Store into a tmpfs file before the container starts.
+# No-ops when no prefix is configured, so a box using keys in engram.env is
+# unaffected.
+[ -x /usr/local/bin/engram-fetch-keys.sh ] && /usr/local/bin/engram-fetch-keys.sh || true
+RUNTIME_ENV=/run/engram/secrets.env
+[ -s "$RUNTIME_ENV" ] || RUNTIME_ENV=/dev/null
+
 BIND="${ENGRAM_BIND:-127.0.0.1}"
 INGEST_BIND="${ENGRAM_INGEST_BIND:-127.0.0.1}"
 
 exec /usr/bin/docker run --rm --name engram \
     --env-file /etc/engram/engram.env \
+    --env-file "$RUNTIME_ENV" \
     -v /var/lib/engram/pgdata:/var/lib/postgresql/data \
     -p "${BIND}:8080:8080" \
     -p "${INGEST_BIND}:8081:8081" \

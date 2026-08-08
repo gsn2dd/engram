@@ -153,6 +153,15 @@ Resources:
       MetadataOptions:
         HttpTokens: required          # IMDSv2 only
         HttpEndpoint: enabled
+      # Write the parameter path before anything starts. The IAM policy below is
+      # scoped to exactly this prefix, so the instance, the policy and the
+      # instructions printed at login all name the same place — otherwise a
+      # customer follows the documented command and gets AccessDenied.
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          install -d -m 0700 /etc/engram
+          echo "/engram/${AWS::StackName}" > /etc/engram/ssm-prefix
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:

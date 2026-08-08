@@ -88,6 +88,15 @@ trap 'rm -f "$USER_DATA"' EXIT
 {
     echo "#!/bin/bash"
     echo "export ENGRAM_IMAGE='${ENGRAM_IMAGE}'"
+    # Stage the helper scripts onto the builder. They are kept as real files in
+    # the repo rather than heredocs inside provision.sh so they can be reviewed,
+    # diffed and syntax-checked like any other code.
+    for helper in engram-fetch-keys.sh engram-welcome.sh engram-help.sh; do
+        echo "cat > /tmp/${helper} <<'ENGRAM_HELPER_EOF'"
+        cat "${HERE}/${helper}"
+        echo "ENGRAM_HELPER_EOF"
+        echo "chmod 0755 /tmp/${helper}"
+    done
     tail -n +2 "${HERE}/provision.sh"
 } > "$USER_DATA"
 
