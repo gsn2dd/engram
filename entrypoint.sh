@@ -25,6 +25,30 @@ else
   INGEST_PID=""
 fi
 
+# Starter brain: engram's own documentation, stored as memories. On by default,
+# because an empty brain is both a poor first impression and a slightly broken
+# one — recall returns nothing and every threshold in the engine was fitted to a
+# corpus that does not exist yet. Scoped to the `engram-guide` project so it can
+# be removed wholesale with `pm forget-project engram-guide --yes`.
+# Skips itself silently when no embedding key is configured, which is the normal
+# state on a first boot of the published image.
+# Retried on the consolidation loop, not just at boot: the published image ships
+# with no embedding key, so the first attempt always skips. Without a retry the
+# starter brain would only ever appear if the customer happened to restart the
+# container after adding a key — and the documentation would be describing
+# something that never happens. seed_starter is idempotent and returns
+# immediately once seeded, so the retry costs nothing.
+if [ "${ENGRAM_SEED_STARTER:-1}" != "0" ]; then
+  (
+    sleep 4
+    python3 seed_starter.py 2>&1 | sed 's/^/[starter] /'
+    while true; do
+      sleep "${ENGRAM_SEED_RETRY_INTERVAL:-600}"
+      python3 seed_starter.py >/dev/null 2>&1 && break
+    done
+  ) &
+fi
+
 # Optionally seed a small demo brain on first boot, so "try it" isn't an empty
 # box. Idempotent + uses your keys. Set ENGRAM_SEED_DEMO=0 for a clean brain.
 if [ "${ENGRAM_SEED_DEMO:-0}" = "1" ] || [ "${ENGRAM_SEED_DEMO:-0}" = "true" ]; then

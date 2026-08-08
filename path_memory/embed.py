@@ -70,6 +70,22 @@ def active_model() -> str:
     return GEMINI_MODEL if resolve_provider() == "gemini" else OPENAI_MODEL
 
 
+def provider_ready() -> bool:
+    """
+    True only if embedding would actually work right now.
+
+    `resolve_provider()` is not this check. When ENGRAM_EMBED_PROVIDER is pinned
+    it returns that provider whether or not its key is present — the key is only
+    consulted at call time. Callers that want to know "can I embed?" before
+    starting work need this, otherwise they proceed and fail per item.
+    """
+    try:
+        provider = resolve_provider()
+    except EmbeddingError:
+        return False
+    return bool(_gemini_key() if provider == "gemini" else _openai_key())
+
+
 def _embed_gemini(texts):
     key = _gemini_key()
     if not key:

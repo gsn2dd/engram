@@ -69,6 +69,37 @@ def cmd_temporal_sweep(args):
         print(f"     {r['body'][:160].replace(chr(10), ' ')}{'...' if len(r['body']) > 160 else ''}")
 
 
+def cmd_forget_project(args):
+    """Delete every memory in a project. Used to remove the starter memories once
+    they have served their purpose — a starter brain that cannot be cleanly
+    removed is contamination rather than a welcome."""
+    from path_memory.db import get_conn
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM memories WHERE project = %s", (args.project,))
+    n = cur.fetchone()[0]
+    if not n:
+        print(f"No memories in project '{args.project}'.")
+        cur.close(); conn.close(); return
+    if not args.yes:
+        # Deleting memories is not undoable, so require the intent to be stated.
+        print(f"This will permanently delete {n} memories in project '{args.project}'.")
+        print(f"Re-run with --yes to confirm:  pm forget-project {args.project} --yes")
+        cur.close(); conn.close(); return
+    cur.execute("DELETE FROM memories WHERE project = %s", (args.project,))
+    conn.commit()
+    print(f"Deleted {n} memories from project '{args.project}'.")
+    cur.close(); conn.close()
+
+
+def cmd_dream(args):
+    """Run one dreaming pass: age doorways, read new memories for subjects,
+    back-fill them, summarise. Bounded; safe on a timer."""
+    from path_memory.dream import dream
+    import json as _json
+    print(_json.dumps(dream(project=args.project, llm_budget=args.budget), indent=2, default=str))
+
+
 p = argparse.ArgumentParser(prog="pm")
 sub = p.add_subparsers(dest="cmd")
 
@@ -80,12 +111,15 @@ sub.add_parser("decay")
 sub.add_parser("consolidate")
 pa = sub.add_parser("paths");    pa.add_argument("entity")
 ts = sub.add_parser("temporal-sweep"); ts.add_argument("--limit", type=int, default=50)
+fp = sub.add_parser("forget-project"); fp.add_argument("project"); fp.add_argument("--yes", action="store_true")
+dr = sub.add_parser("dream"); dr.add_argument("--project"); dr.add_argument("--budget", type=int, default=12)
 
 def main():
     args = p.parse_args()
     {
         "save": cmd_save, "recall": cmd_recall, "decay": cmd_decay, "paths": cmd_paths,
         "consolidate": cmd_consolidate, "temporal-sweep": cmd_temporal_sweep,
+        "forget-project": cmd_forget_project, "dream": cmd_dream,
     }.get(args.cmd, lambda _: p.print_help())(args)
 
 

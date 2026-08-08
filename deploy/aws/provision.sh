@@ -73,9 +73,17 @@ POSTGRES_DB=pathmemoria
 POSTGRES_USER=pathuser
 POSTGRES_PASSWORD=${PG_PASS}
 
-# Ship a clean brain. The demo seed exists so "docker compose up" isn't an
-# empty box on a laptop; a customer's instance should start empty.
+# Ship a clean brain of the customer's own data. The DEMO seed is sample content
+# for a laptop try-out and has no business on a paid instance.
 ENGRAM_SEED_DEMO=0
+
+# The STARTER brain is different and stays on: it is engram's own documentation
+# stored as memories, so the first question a customer asks returns a real
+# answer and demonstrates semantic recall at the same time. It waits for an
+# embedding key, so it appears once the customer configures one rather than at
+# first boot. Remove it any time with:
+#   docker exec engram python3 cli/pm.py forget-project engram-guide --yes
+ENGRAM_SEED_STARTER=1
 
 # Consolidation interval (seconds) for the decay/strengthen loop.
 ENGRAM_CONSOLIDATE_INTERVAL=3600
