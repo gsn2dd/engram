@@ -52,6 +52,7 @@ from typing import Dict, List, Optional
 
 from .db import get_conn
 from . import boundary
+from . import projects as _projects
 
 # Model calls per run, shared across the stages that name things. The tagging
 # and ageing stages are free and are not counted.
@@ -71,22 +72,74 @@ MIN_CLUSTER = int(os.environ.get("ENGRAM_DREAM_MIN_CLUSTER", "3"))
 MAX_DERIVED_DEPTH = int(os.environ.get("ENGRAM_DREAM_MAX_DEPTH", "1"))
 
 
-def _watermark(cur) -> int:
-    """How far the reading stage has already got through the record set."""
+def _ensure_state(cur) -> None:
+    """The reading watermark, kept PER PROJECT.
+
+    It was a single global row, advanced from whichever project's batch ran
+    last. The reading loop walks projects largest-first, so run one read a
+    batch from worldtownguide and set the global mark to (say) 3800; every
+    memory below 3800 in every other project was then permanently behind the
+    watermark and never read. The smaller the project, the more completely it
+    was skipped — which is exactly backwards, since those are the ones whose
+    subjects a summary would most help.
+
+    One row per project. Each advances only on its own batches.
+    """
     cur.execute("""CREATE TABLE IF NOT EXISTS dream_state (
                        id            integer PRIMARY KEY DEFAULT 1,
                        last_memory_id integer DEFAULT 0,
                        last_run_at    timestamptz,
                        CHECK (id = 1))""")
-    cur.execute("INSERT INTO dream_state (id) VALUES (1) ON CONFLICT DO NOTHING")
+    cur.execute("""CREATE TABLE IF NOT EXISTS dream_watermarks (
+                       project        text PRIMARY KEY,
+                       last_memory_id integer     DEFAULT 0,
+                       last_run_at    timestamptz DEFAULT now())""")
+    # Carry the old global mark over as each project's starting point, once.
+    # Dropping it instead would re-read the whole corpus on the next run and
+    # spend the model budget doing it.
     cur.execute("SELECT coalesce(last_memory_id, 0) FROM dream_state WHERE id = 1")
-    return cur.fetchone()[0]
+    row = cur.fetchone()
+    if row and row[0]:
+        cur.execute(
+            """INSERT INTO dream_watermarks (project, last_memory_id)
+               SELECT DISTINCT project, %s FROM memories WHERE project IS NOT NULL
+               ON CONFLICT (project) DO NOTHING""", (row[0],))
+        cur.execute("UPDATE dream_state SET last_memory_id = 0 WHERE id = 1")
 
 
-def _advance(cur, memory_id: int) -> None:
+def _watermark(cur, project: str) -> int:
+    """How far the reading stage has got through THIS project's records."""
+    cur.execute("SELECT coalesce(last_memory_id, 0) FROM dream_watermarks WHERE project = %s",
+                (project,))
+    row = cur.fetchone()
+    return row[0] if row else 0
+
+
+def _advance(cur, project: str, memory_id: int) -> None:
     cur.execute(
-        "UPDATE dream_state SET last_memory_id = GREATEST(coalesce(last_memory_id,0), %s), "
-        "last_run_at = now() WHERE id = 1", (memory_id,))
+        """INSERT INTO dream_watermarks (project, last_memory_id, last_run_at)
+           VALUES (%s,%s,now())
+           ON CONFLICT (project) DO UPDATE
+             SET last_memory_id = GREATEST(coalesce(dream_watermarks.last_memory_id,0),
+                                           EXCLUDED.last_memory_id),
+                 last_run_at    = now()""",
+        (project, memory_id))
+
+
+def _unread_count(cur) -> int:
+    """Memories no project's watermark has reached yet.
+
+    This is the cheap gate that keeps a quiet hour free: no unread rows means
+    no read stage, and therefore no model call at all. It has to be asked per
+    project for the same reason the watermark is per project.
+    """
+    cur.execute(
+        """SELECT count(*) FROM memories m
+           LEFT JOIN dream_watermarks w ON w.project = m.project
+           WHERE m.project IS NOT NULL AND NOT m.archived
+             AND m.origin IS DISTINCT FROM 'recycle'
+             AND m.id > coalesce(w.last_memory_id, 0)""")
+    return cur.fetchone()[0] or 0
 
 
 def _slugify(text: str) -> str:
@@ -209,7 +262,7 @@ Rules:
 
 
 def extract_topics(cur, budget: _Budget, project: Optional[str] = None,
-                   batch: int = 40, limit: int = 3, since_id: int = 0) -> List[Dict]:
+                   batch: int = 40, limit: int = 3) -> List[Dict]:
     """
     Read memories and extract the subjects they are about.
 
@@ -259,19 +312,41 @@ def extract_topics(cur, budget: _Budget, project: Optional[str] = None,
                WHERE m.project = %s AND NOT m.archived AND m.id > %s
                  AND m.origin IS DISTINCT FROM 'recycle'
                ORDER BY m.id ASC LIMIT %s""",
-            (proj, since_id, batch))
+            (proj, _watermark(cur, proj), batch))
         rows = cur.fetchall()
         if not rows:
             continue
         if not budget.take():
             break
+        highest = max(r[0] for r in rows)
+        # topics.project is a foreign key into the registry, but memories.project
+        # is a free-text column that predates it — a project can be perfectly
+        # real, hold hundreds of memories, and have no registry row. Inserting
+        # the raw value raised a FK violation, and because the whole pass shares
+        # one transaction, that rolled back every topic the run had found, not
+        # just this one. Resolve through the aliases first so a known project is
+        # not registered twice under a second spelling.
+        registered = _projects.resolve(cur, proj)
+        if not registered:
+            registered = _projects.ensure(cur, proj)[0]
 
         listing = "\n\n".join(
             f"id: {r[0]}\nsubject: {' '.join((r[1] or '').split())[:140]}\n"
             f"body: {' '.join((r[2] or '').split())[:300]}"
             for r in rows)
         extracted = _extract(listing, proj)
+        if extracted is None:
+            # The CALL failed (no key, API error, refusal). These memories have
+            # not been read, so the watermark must not move past them.
+            continue
         if not extracted:
+            # Read successfully; the batch simply had no durable subject in it.
+            # This must still advance, or the same batch is re-read every run
+            # forever — one wasted model call an hour, and the pass never
+            # reaches anything newer. That is the difference between "nothing
+            # to say" and "could not ask", and it is why _extract distinguishes
+            # [] from None.
+            _advance(cur, proj, highest)
             continue
 
         counts: Dict[str, int] = {}
@@ -294,27 +369,32 @@ def extract_topics(cur, budget: _Budget, project: Optional[str] = None,
                     """INSERT INTO topics (project, slug, label, source)
                        VALUES (%s,%s,%s,'discovered')
                        ON CONFLICT (project, slug) DO UPDATE SET last_seen = now()""",
-                    (proj, slug, slug.replace("-", " ")))
+                    (registered, slug, slug.replace("-", " ")))
                 cur.execute(
                     """INSERT INTO memory_topics (memory_id, project, slug, confidence, assigned_by)
                        VALUES (%s,%s,%s,1.0,'read') ON CONFLICT DO NOTHING""",
-                    (mid, proj, slug))
-                found.append({"project": proj, "slug": slug, "memory_id": mid})
-        highest = max((r[0] for r in rows), default=0)
-        if highest:
-            _advance(cur, highest)
+                    (mid, registered, slug))
+                found.append({"project": registered, "slug": slug, "memory_id": mid})
+        _advance(cur, proj, highest)
     return found
 
 
-def _extract(listing: str, project: str) -> List[Dict]:
+def _extract(listing: str, project: str) -> Optional[List[Dict]]:
     """One batched extraction call. Batched because per-memory calls would make
-    this stage cost proportional to the corpus."""
+    this stage cost proportional to the corpus.
+
+    Returns [] when the batch was read and held no durable subject, and None
+    when the call could not be made or failed. The caller advances its
+    watermark on the first and not on the second; collapsing both to [] either
+    re-read the same batch forever or silently skipped memories on a transient
+    API error, depending on which way you resolved it.
+    """
     try:
         from anthropic import Anthropic
     except Exception:
-        return []
+        return None
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        return []
+        return None
     try:
         response = Anthropic().messages.create(
             model=os.environ.get("ENGRAM_DREAM_MODEL", "claude-opus-5"),
@@ -326,13 +406,13 @@ def _extract(listing: str, project: str) -> List[Dict]:
                        "content": f"Project: {project}\n\n{listing}"}],
         )
         if response.stop_reason == "refusal":
-            return []
+            return None
         text = next((b.text for b in response.content if b.type == "text"), None)
         import json as _json
         return (_json.loads(text) or {}).get("memories", []) if text else []
     except Exception as exc:
         print(f"[dream] extraction failed: {exc}", file=sys.stderr)
-        return []
+        return None
 
 
 # ---------------------------------------------------------------- stage 4 ---
@@ -413,21 +493,21 @@ def summarise_topics(cur, budget: _Budget, limit: int = 3) -> List[Dict]:
                       AND s.subject = 'Topic summary: ' || t.slug
                       AND s.superseded_by IS NULL
                     ORDER BY s.created_at DESC LIMIT 1) AS prev_id,
-                  (SELECT coalesce(array_length(s.derived_from, 1), 0) FROM memories s
+                  (SELECT s.derived_from FROM memories s
                     WHERE s.origin = 'recycle' AND s.project = t.project
                       AND s.subject = 'Topic summary: ' || t.slug
                       AND s.superseded_by IS NULL
-                    ORDER BY s.created_at DESC LIMIT 1) AS prev_covered
+                    ORDER BY s.created_at DESC LIMIT 1) AS prev_members
            FROM topics t JOIN memory_topics mt
              ON mt.project = t.project AND mt.slug = t.slug
+           JOIN memories mm ON mm.id = mt.memory_id
+           WHERE mm.origin IS DISTINCT FROM 'recycle' AND NOT mm.archived
            GROUP BY t.project, t.slug, t.label, t.gist
            HAVING count(mt.memory_id) >= %s
            ORDER BY n DESC LIMIT %s""",
         (MIN_CLUSTER, limit))
     written = []
-    for proj, slug, label, gist, n, prev_id, prev_covered in cur.fetchall():
-        if prev_id and n <= (prev_covered or 0):
-            continue  # nothing new to say about this topic
+    for proj, slug, label, gist, n, prev_id, prev_members in cur.fetchall():
         cur.execute(
             """SELECT m.id, m.subject FROM memories m
                JOIN memory_topics mt ON mt.memory_id = m.id
@@ -440,6 +520,16 @@ def summarise_topics(cur, budget: _Budget, limit: int = 3) -> List[Dict]:
         if len(rows) < MIN_CLUSTER:
             continue
         member_ids = [r[0] for r in rows]
+        # Compare the actual membership, not a count. The count test compared
+        # every tagged row (unbounded, and including the previous summary's own
+        # tag) against the previous summary's member list (capped at 30 and
+        # excluding summaries). On any topic past 30 members those two numbers
+        # could never agree, so the topic was rewritten every single run —
+        # a model call an hour, and a supersession chain of identical summaries.
+        # The member ids are already stored; asking whether they changed is
+        # exact and cannot drift out of step with how members are selected.
+        if prev_members is not None and set(member_ids) == set(prev_members):
+            continue  # nothing new to say about this topic
         body = (f"{gist or ''}\n\nCovers {len(member_ids)} memories in {proj}:\n"
                 + "\n".join(f"- [{r[0]}] {r[1]}" for r in rows))
         try:
@@ -580,17 +670,15 @@ def dream(project: Optional[str] = None, llm_budget: int = DEFAULT_LLM_BUDGET,
         # Nothing new since the last pass means there is nothing to read, and a
         # pass that reads nothing must not spend a model call. Most hours on a
         # quiet brain should cost exactly zero.
-        since_id = _watermark(cur)
-        # Exclude the pass's OWN output. Summaries are memories, so counting
-        # them here means every run creates the evidence that another run is
-        # needed — the job would never once conclude that nothing happened,
-        # which is precisely the case it exists to make cheap.
-        cur.execute("SELECT max(id) FROM memories "
-                    "WHERE NOT archived AND origin IS DISTINCT FROM 'recycle'")
-        newest = cur.fetchone()[0] or 0
-        report["watermark"] = since_id
-        report["newest_memory"] = newest
-        if newest <= since_id:
+        #
+        # The pass's OWN output is excluded from the count. Summaries are
+        # memories, so counting them means every run creates the evidence that
+        # another run is needed — the job would never once conclude that
+        # nothing happened, which is precisely the case it exists to make cheap.
+        _ensure_state(cur)
+        unread = _unread_count(cur)
+        report["unread"] = unread
+        if unread == 0:
             report["skipped"] = "no new memories since last pass"
             report["promoted"] = promote_doorways(cur, budget)
             report["backfilled"] = backfill_topics(cur, limit_per_topic=tag_limit)
@@ -603,7 +691,7 @@ def dream(project: Optional[str] = None, llm_budget: int = DEFAULT_LLM_BUDGET,
             return report
 
         report["promoted"] = promote_doorways(cur, budget)
-        report["extracted"] = extract_topics(cur, budget, project=project, since_id=since_id)
+        report["extracted"] = extract_topics(cur, budget, project=project)
         report["backfilled"] = backfill_topics(cur, limit_per_topic=tag_limit)
         report["summaries"] = summarise_topics(cur, budget)
         report["periods"] = summarise_periods(cur, budget)
