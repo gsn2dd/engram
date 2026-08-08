@@ -107,7 +107,21 @@ $( [ "$EMBED" = set ] && echo "
 
     sudo grep ENGRAM_INGEST_TOKEN /etc/engram/engram.env
 
-  ── 4. ASK THE BRAIN ABOUT ITSELF ──────────────────────────────────────────
+  ── 4. SEE IT WORK ON REAL-LOOKING DATA ────────────────────────────────────
+
+  Loads the working memory of a fictional company, then proves recall finds the
+  right answer to 14 questions that share almost no words with it:
+
+    docker exec engram python3 cli/pm.py demo --verify
+
+  That is also a self-test. If it passes, storage, embedding and semantic
+  recall all work on this instance with your key. Then ask your agent things
+  like "why do the sensors go quiet when it gets cold" or "a customer nearly
+  walked after an outage". Remove it with:
+
+    docker exec engram python3 cli/pm.py forget-project tidewell --yes
+
+  ── 5. ASK THE BRAIN ABOUT ITSELF ──────────────────────────────────────────
 
   It ships knowing how it works, so recall is also the tutorial:
 
@@ -124,7 +138,8 @@ $( [ "$EMBED" = set ] && echo "
     get_started  (or engram-help)            this guide
     journalctl -u engram -f                  logs
     sudo systemctl restart engram            restart after a config change
-    docker exec engram python3 cli/pm.py dream       run consolidation by hand
+    docker exec engram python3 cli/pm.py demo --verify   demo + self-test
+    docker exec engram python3 cli/pm.py dream           run consolidation by hand
 
   Issues, questions and what-broke reports: github.com/gsn2dd/engram
 

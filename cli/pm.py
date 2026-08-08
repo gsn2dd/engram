@@ -92,6 +92,16 @@ def cmd_forget_project(args):
     cur.close(); conn.close()
 
 
+def cmd_demo(args):
+    """Seed a fictional company's brain and prove recall works on this instance."""
+    import subprocess, os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    argv = [sys.executable, os.path.join(root, "demo_company.py")]
+    if args.verify:
+        argv.append("--verify")
+    raise SystemExit(subprocess.call(argv))
+
+
 def cmd_dream(args):
     """Run one dreaming pass: age doorways, read new memories for subjects,
     back-fill them, summarise. Bounded; safe on a timer."""
@@ -112,6 +122,7 @@ sub.add_parser("consolidate")
 pa = sub.add_parser("paths");    pa.add_argument("entity")
 ts = sub.add_parser("temporal-sweep"); ts.add_argument("--limit", type=int, default=50)
 fp = sub.add_parser("forget-project"); fp.add_argument("project"); fp.add_argument("--yes", action="store_true")
+dm = sub.add_parser("demo"); dm.add_argument("--verify", action="store_true")
 dr = sub.add_parser("dream"); dr.add_argument("--project"); dr.add_argument("--budget", type=int, default=12)
 
 def main():
@@ -119,7 +130,7 @@ def main():
     {
         "save": cmd_save, "recall": cmd_recall, "decay": cmd_decay, "paths": cmd_paths,
         "consolidate": cmd_consolidate, "temporal-sweep": cmd_temporal_sweep,
-        "forget-project": cmd_forget_project, "dream": cmd_dream,
+        "forget-project": cmd_forget_project, "dream": cmd_dream, "demo": cmd_demo,
     }.get(args.cmd, lambda _: p.print_help())(args)
 
 
