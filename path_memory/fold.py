@@ -17,15 +17,28 @@ cost on large blobs — both are tunable.
 """
 import json as _json
 import re
+import sys as _sys
 
 from .memory import Memory
 from .db import get_conn
 
 _TOKEN = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
+# The placeholders redaction.py substitutes in, e.g. [REDACTED_PRIVATE_KEY].
+_REDACTED_MARKER = re.compile(r"\[REDACTED[_A-Z]*\]")
 
-def fold_json(data, person=None, project=None, perspectives=False, max_nodes=200):
-    """Recursively fold parsed-or-string JSON into memories. Returns created ids."""
+
+def fold_json(data, person=None, project=None, perspectives=False, max_nodes=200,
+              redact=True):
+    """Recursively fold parsed-or-string JSON into memories. Returns created ids.
+
+    redact: scrub credential-shaped leaf values before storing (default on, as
+    everywhere else — a memory store is the last place a live key should end
+    up). Turn it off deliberately for structured data that legitimately
+    contains key-shaped strings and is not secret. Whichever you choose,
+    `recall_json` will tell you which leaves were redacted rather than handing
+    back a placeholder dressed as the real value.
+    """
     if isinstance(data, (str, bytes, bytearray)):
         data = _json.loads(data)
 
@@ -48,6 +61,7 @@ def fold_json(data, person=None, project=None, perspectives=False, max_nodes=200
                 person=person,
                 project=project,
                 perspectives=perspectives,
+                redact=redact,
             ))
 
     walk(data, "")
@@ -103,18 +117,44 @@ def recall_json(person=None, project=None):
         clauses.append("project = %s"); params.append(project)
 
     conn = get_conn(); cur = conn.cursor()
-    cur.execute("SELECT subject, body FROM memories WHERE " + " AND ".join(clauses) + " ORDER BY id", params)
+    cur.execute("SELECT subject, body, redaction_version FROM memories WHERE "
+                + " AND ".join(clauses) + " ORDER BY id", params)
     rows = cur.fetchall()
     cur.close(); conn.close()
 
     root = {}
-    for subject, body in rows:
+    redacted, unparsable = [], []
+    for subject, body, redaction_version in rows:
         prefix = f"{subject}: "
         if not body.startswith(prefix):
             continue
         try:
             value = _json.loads(body[len(prefix):])
         except (ValueError, TypeError):
+            # A leaf that will not parse is a leaf that silently VANISHES from
+            # the reassembled object, leaving a structure that looks complete.
+            unparsable.append(subject)
             continue
+        # redaction_version is stamped on EVERY memory written with redact=True,
+        # whether or not anything was actually scrubbed — so using it alone
+        # flagged every leaf, including "billing" and 3. A warning that fires on
+        # untouched data is one people learn to ignore, which is exactly how a
+        # real one gets missed. Flag only leaves that carry an actual marker.
+        if redaction_version and isinstance(value, str) and _REDACTED_MARKER.search(value):
+            redacted.append(subject)
         _set_path(root, _parse_path(subject), value)
+
+    # Say so. Redaction rewrites the leaf in place — a private key comes back as
+    # "[REDACTED_PRIVATE_KEY]" — so a caller reassembling a config got something
+    # that looked whole and was wrong, with nothing anywhere to indicate it.
+    # Scrubbing secrets is right; doing it invisibly is not.
+    if redacted:
+        print(f"[engram] recall_json: {len(redacted)} leaf value(s) were redacted at "
+              f"write time and are placeholders, NOT the original values: "
+              f"{', '.join(sorted(redacted)[:10])}"
+              + (" ..." if len(redacted) > 10 else ""), file=_sys.stderr)
+    if unparsable:
+        print(f"[engram] recall_json: {len(unparsable)} leaf/leaves could not be parsed and are "
+              f"MISSING from the result: {', '.join(sorted(unparsable)[:10])}"
+              + (" ..." if len(unparsable) > 10 else ""), file=_sys.stderr)
     return root

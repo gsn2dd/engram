@@ -124,6 +124,86 @@ class TestBestOfBoth(unittest.TestCase):
         self.assertTrue(all("espresso" in (r["subject"] or "") for r in collapsed),
                         "collapse must keep only the on-topic cluster (the 'air'), not the 'wall'")
 
+    def test_collapse_does_not_invent_a_cliff_in_a_flat_field(self):
+        # Normalisation divides by the span, so six scores covering a range of
+        # 0.0001 normalise to gaps of 0.2 each — clearing a 0.18 threshold. A
+        # perfectly uniform field was cut after two results and reported as a
+        # clean cliff. Every field has a largest gap; that is not a wall.
+        from path_memory.recall import _collapse_field
+        flat = [{"score": 0.7 + i * 1e-4, "cosine": 0.7, "id": i} for i in range(6)][::-1]
+        kept, gap = _collapse_field(flat, limit=5)
+        self.assertIsNone(gap, "a field with no structure must not report a cliff")
+        self.assertEqual(len(kept), 5, "with no wall, collapse falls back to the top-N")
+
+    def test_collapse_still_finds_a_real_cliff_at_any_limit(self):
+        # Measured on a real brain: the genuine on-topic-to-noise drop was
+        # 0.2316 (31% of the top score) while the largest drop inside either
+        # cluster was 0.0357 (4.8%). The absolute floor has to sit between them
+        # and must not depend on `limit`.
+        from path_memory.recall import _collapse_field
+        measured = [0.7421, 0.7280, 0.7272, 0.4956, 0.4599, 0.4583, 0.4524, 0.4351]
+        for lim in (5, 8):
+            kept, gap = _collapse_field(
+                [{"score": s, "cosine": s, "id": i} for i, s in enumerate(measured)], limit=lim)
+            self.assertEqual(len(kept), 3, f"real cliff must survive limit={lim}")
+            self.assertIsNotNone(gap)
+
+    def test_collapse_never_returns_more_than_the_limit(self):
+        # The cliff is now searched across the whole candidate pool, so the cut
+        # point can fall beyond `limit` and must be clamped.
+        from path_memory.recall import _collapse_field
+        pool = [{"score": 0.75 - i * 1e-3, "cosine": 0.7, "id": i} for i in range(8)]
+        pool += [{"score": 0.20, "cosine": 0.2, "id": 100 + i} for i in range(6)]
+        kept, _ = _collapse_field(pool, limit=5)
+        self.assertLessEqual(len(kept), 5, "collapse must never exceed the requested limit")
+
+    def test_collapse_does_not_call_a_model_on_the_read_path(self):
+        # Recording the boundary is two cheap writes; NAMING it is a model call.
+        # It used to happen synchronously inside recall, unbudgeted, once per
+        # novel result set — so exploring a new brain with collapse on cost a
+        # model call per query. Naming belongs in the dreaming pass.
+        import path_memory.boundary as boundary
+        for i in range(3):
+            Memory.save(f"cliff note {i}", f"Detail {i} about pulling espresso shots and grind size.",
+                        person=self.ENT, project="nocall", perspectives=False)
+        for i, t in enumerate(["tax filing", "bicycle tyres", "roof tiles", "bus timetables"]):
+            Memory.save(f"cliff noise {i}", f"Something about {t}.",
+                        person=self.ENT, project="nocall", perspectives=False)
+        called = []
+        original = boundary._name_cluster
+        boundary._name_cluster = lambda *a, **k: called.append(1) or {"name": "x", "gist": ""}
+        try:
+            recall("how do I pull a good espresso shot", person=self.ENT, project="nocall",
+                   limit=5, collapse=True)
+        finally:
+            boundary._name_cluster = original
+        self.assertEqual(called, [], "recall must not name a boundary synchronously")
+
+    def test_folded_redaction_is_reported_not_silent(self):
+        import json
+        from path_memory.fold import fold_json, recall_json
+        blob = {"svc": {"name": "billing", "retries": 3,
+                        "pem": "-----BEGIN RSA PRIVATE KEY-----\nMIIabc123\n-----END RSA PRIVATE KEY-----"}}
+        fold_json(json.dumps(blob), person=self.ENT, project="foldredact")
+        import io, contextlib
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = recall_json(person=self.ENT, project="foldredact")
+        warning = err.getvalue()
+        self.assertNotEqual(got, blob, "the credential leaf should have been scrubbed")
+        self.assertIn("svc.pem", warning,
+                      "a redacted leaf must be reported, not handed back as the real value")
+        self.assertNotIn("svc.name", warning,
+                         "untouched leaves must not be flagged — a warning that cries wolf gets ignored")
+
+    def test_fold_redaction_can_be_turned_off_deliberately(self):
+        import json
+        from path_memory.fold import fold_json, recall_json
+        blob = {"cfg": {"token": "sk-ant-abcdefghijklmnopqrstuvwxyz012345"}}
+        fold_json(json.dumps(blob), person=self.ENT, project="foldraw", redact=False)
+        self.assertEqual(recall_json(person=self.ENT, project="foldraw"), blob,
+                         "an explicit redact=False must round-trip the value untouched")
+
     def test_creativity_injects_serendipity(self):
         # need more than `limit` candidates for near-misses to draw from
         for i in range(10):

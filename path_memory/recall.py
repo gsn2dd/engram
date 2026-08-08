@@ -96,7 +96,7 @@ def _inject_serendipity(scored, limit, creativity):
     return precise + picks
 
 
-def _collapse_field(scored, limit, min_gap=0.18, min_keep=1):
+def _collapse_field(scored, limit, min_gap=0.18, min_keep=1, min_abs_frac=0.05):
     """Collapse the 'treacle' — the blurry continuum of relevance — into a clean
     keep/drop boundary, and return only the keep side ('air').
 
@@ -107,13 +107,33 @@ def _collapse_field(scored, limit, min_gap=0.18, min_keep=1):
     answer-set forms a tight cluster up top, then the relevance falls off a
     cliff into noise.
 
-    We find that cliff: the largest drop between consecutive candidates,
-    measured on the score range of the top window so it's scale-free. Cut there.
-    If nothing drops by at least `min_gap` of the window's span, there's no clean
-    wall — it's all air — so we just return the top `limit`. Either way we never
-    pad the result with treacle the way a fixed top-N does.
+    We find that cliff: the largest drop between consecutive candidates. It has
+    to clear two tests, and it needs both.
+
+      RELATIVE — the drop must be at least `min_gap` of the pool's score range,
+      so the test is scale-free.
+      ABSOLUTE — the drop must also be at least `min_abs_frac` of the top score,
+      so a field with no real structure cannot be stretched into one.
+
+    The absolute test is not decoration. Normalisation divides by the span, so
+    six scores covering a range of 0.0001 normalise to gaps of 0.2 apiece and
+    the first one clears a 0.18 threshold: a perfectly uniform field was cut
+    after two results and reported as a clean cliff. Every field has a largest
+    gap; that is not the same as having a wall.
+
+    Both thresholds are fitted to measurement on a real brain, not derived. On
+    an eight-memory field the genuine on-topic-to-noise cliff was 0.2316 raw —
+    31% of the top score — while the largest drop WITHIN either cluster was
+    0.0357, or 4.8%. A 5% floor sits in that gap with room on both sides. Like
+    every other threshold in this engine, honest heuristics from one corpus.
+
+    Normalisation spans the WHOLE candidate pool rather than the top `limit`+1.
+    The window was an arbitrary truncation, so its span — and therefore every
+    normalised gap measured against it — depended on where the caller happened
+    to cut. The cliff is still only searched for within the first `limit`
+    positions, since nothing beyond that can be returned anyway.
     """
-    window = scored[: limit + 1] if len(scored) > limit else list(scored)
+    window = list(scored)
     if len(window) <= min_keep:
         # Must return the same (results, gap) shape as every other exit. This
         # path is the empty or single-result brain — i.e. a new user's very
@@ -126,15 +146,20 @@ def _collapse_field(scored, limit, min_gap=0.18, min_keep=1):
     hi, lo = vals[0], vals[-1]
     span = (hi - lo) or 1.0
     norm = [(v - lo) / span for v in vals]
+    floor = abs(hi) * min_abs_frac
 
     best_i, best_gap = None, 0.0
     for i in range(min_keep, min(limit, len(window) - 1) + 1):
         gap = norm[i - 1] - norm[i]
-        if gap > best_gap:
+        # The raw drop is what says this is a wall rather than merely the
+        # largest step in a smooth slope.
+        if gap > best_gap and (vals[i - 1] - vals[i]) >= floor:
             best_gap, best_i = gap, i
 
     clean = best_i is not None and best_gap >= min_gap
-    cut = best_i if clean else min(limit, len(scored))
+    # Never return more than asked for: the search window is the whole pool now,
+    # so best_i could otherwise sit beyond `limit`.
+    cut = min(best_i, limit) if clean else min(limit, len(scored))
     # Return the gap alongside the cut: it is the measure of how cleanly the
     # field separated, and the caller needs it to decide whether this
     # resolution is worth keeping as a named boundary. A shallow gap means it
@@ -366,7 +391,14 @@ def recall(
     # again, and nothing in the brain records that these memories go together.
     if collapse and cut_gap is not None:
         from . import boundary as _boundary
-        key = _boundary.record(cur, results, query=query, cut_gap=cut_gap)
+        # name=False: recording the boundary is two cheap writes, but NAMING it
+        # is a synchronous model call. On the read path, unbudgeted, once per
+        # novel result set — so a user exploring a new brain with collapse on
+        # paid a model call per query, in latency and in money, for a label
+        # nothing had asked for. The doorway is still recorded; the dreaming
+        # pass names it later, offline, inside a budget, and only if it proves
+        # durable enough to be worth a name.
+        key = _boundary.record(cur, results, query=query, cut_gap=cut_gap, name=False)
         if key:
             conn.commit()
             for r in results:

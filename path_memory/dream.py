@@ -180,6 +180,34 @@ def promote_doorways(cur, budget: _Budget, limit: int = 10) -> List[Dict]:
     work keeps returning to, and that is what a sub-classification IS. Usage
     decides, not a human enumerating categories up front.
     """
+    # Name the doorways that have earned one, first.
+    #
+    # Recall records boundaries WITHOUT naming them: naming is a model call, and
+    # it has no business happening synchronously on a read. That left every
+    # doorway with a NULL name, and promotion required a name — so nothing could
+    # ever be promoted, and the whole "repeated resolution becomes a topic"
+    # mechanism was quietly dead. Naming belongs here: offline, budgeted, and
+    # only for sets that have re-formed often enough to be worth the call.
+    cur.execute(
+        """SELECT key, member_ids, example_query FROM collapse_keys
+           WHERE name IS NULL AND query_count >= %s
+           ORDER BY query_count DESC LIMIT %s""",
+        (PROMOTE_AT, limit),
+    )
+    for key, member_ids, example_query in cur.fetchall():
+        if not budget.take():
+            break
+        cur.execute("SELECT subject FROM memories WHERE id = ANY(%s)", (member_ids,))
+        subjects = [r[0] or "" for r in cur.fetchall()]
+        try:
+            named = boundary._name_cluster(subjects, example_query)
+        except Exception as exc:
+            print(f"[dream] could not name doorway {key[:12]}: {exc}", file=sys.stderr)
+            continue
+        if named.get("name"):
+            cur.execute("UPDATE collapse_keys SET name = %s, gist = %s WHERE key = %s",
+                        (named["name"], named.get("gist"), key))
+
     cur.execute(
         """SELECT k.key, k.name, k.gist, k.member_ids, k.query_count
            FROM collapse_keys k
