@@ -133,6 +133,40 @@ if [ -n "${tok:-}" ]; then
 fi
 
 echo
+echo "-- MCP endpoint auth"
+
+# The MCP endpoint must demand this instance's generated bearer token. An open
+# endpoint here means first-boot did not write ENGRAM_MCP_TOKEN or the server
+# ignored it — either way the brain is one port-forward away from anyone.
+mtok="$(sudo grep '^ENGRAM_MCP_TOKEN=' /etc/engram/engram.env 2>/dev/null | cut -d= -f2-)"
+if [ -z "$mtok" ]; then
+    bad "no ENGRAM_MCP_TOKEN in engram.env"
+else
+    [ "${#mtok}" -ge 24 ] && ok "MCP token is ${#mtok} chars" \
+                          || bad "MCP token is only ${#mtok} chars"
+    echo "  ---   MCP token fingerprint: $(printf '%s' "$mtok" | sha256sum | cut -c1-16)"
+
+    code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/sse 2>/dev/null)"
+    [ "$code" = "401" ] && ok "MCP rejects an unauthenticated request" \
+                        || bad "unauthenticated /sse returned '${code}', expected 401"
+
+    code="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer definitely-not-the-token-0000" \
+            http://127.0.0.1:8080/sse 2>/dev/null)"
+    [ "$code" = "401" ] && ok "MCP rejects a wrong token" \
+                        || bad "wrong-token /sse returned '${code}', expected 401"
+
+    # A correct token opens an SSE stream that never ends; curl's timeout is
+    # the read mechanism, not a failure. --max-time 3 + the status line is
+    # enough to prove the gate passed it through.
+    code="$(curl -sS -m 3 -o /dev/null -w '%{http_code}' -N \
+            -H "Authorization: Bearer ${mtok}" \
+            http://127.0.0.1:8080/sse 2>/dev/null)"
+    [ "$code" = "200" ] && ok "MCP accepts the instance token" \
+                        || bad "instance-token /sse returned '${code}', expected 200"
+fi
+
+echo
 echo "-- brain state"
 
 empty="$(docker exec engram psql -U pathuser -d pathmemoria -At \
