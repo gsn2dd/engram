@@ -174,6 +174,7 @@ def recall(
     node_type: Optional[str] = None,
     origin: Optional[str] = None,
     project: Optional[str] = None,
+    tiers=None,
     limit: int = 5,
     increment_weight: bool = True,
     creativity: float = 0.0,
@@ -191,6 +192,14 @@ def recall(
     memories — semantically adjacent but not the obvious answer — to spark
     connections the literal query would never surface. Those picks are flagged
     serendipity=True and deliberately never strengthen the use-built graph.
+
+    tiers: restrict to these memory tiers (a string or an iterable of them,
+    e.g. ('curated','insight','decision','project') to search knowledge but
+    not the raw transcript archive). None searches every tier. This came back
+    from the mindspace lineage, where an exact-match single-tier default
+    silently hid every insight/decision memory — including the dreaming pass's
+    own summaries, i.e. the compressed form of the corpus was the one thing
+    recall could never see.
 
     collapse: when True, don't blindly return a fixed top-`limit`. Resolve the
     relevance field into keep ('air') vs drop ('wall') by finding the natural
@@ -220,6 +229,10 @@ def recall(
     if noun_type: _filter("noun_type", "m.noun_type", noun_type)
     if node_type: _filter("node_type", "m.node_type", node_type)
     if origin:    _filter("origin",    "m.origin",    origin)
+    if tiers:
+        _t = [tiers] if isinstance(tiers, str) else list(tiers)
+        filters.append("tier = ANY(%s)");     params.append(_t)
+        p_filters.append("m.tier = ANY(%s)"); p_params.append(_t)
     # Resolve the project the same way Memory.save does. Without this a memory
     # written with project="My Project" (stored as "my-project") is invisible to
     # a recall using the identical string the caller just wrote — and any
@@ -254,7 +267,8 @@ def recall(
                    1 - (embedding <=> '{vec_str}'::vector) AS cosine,
                    weight, access_count, success_count, fail_count,
                    last_accessed, created_at,
-                   temporal_anchor_start, temporal_anchor_end, superseded_by
+                   temporal_anchor_start, temporal_anchor_end, superseded_by,
+                   derived_from
             FROM memories
             WHERE {where}
             ORDER BY embedding <=> '{vec_str}'::vector
@@ -274,7 +288,8 @@ def recall(
                        1 - (mp.embedding <=> '{vec_str}'::vector) AS cosine,
                        m.weight, m.access_count, m.success_count, m.fail_count,
                        m.last_accessed, m.created_at,
-                       m.temporal_anchor_start, m.temporal_anchor_end, m.superseded_by
+                       m.temporal_anchor_start, m.temporal_anchor_end, m.superseded_by,
+                       m.derived_from
                 FROM memory_perspectives mp JOIN memories m ON m.id = mp.memory_id
                 WHERE {p_where}
                 ORDER BY mp.embedding <=> '{vec_str}'::vector
@@ -350,10 +365,38 @@ def recall(
             # at write time — see path_memory.temporal.
             "temporal_status": status,
             "superseded_by":  row[18],
+            "derived_from":   row[19],
         })
 
     # Re-rank by composite score
     results.sort(key=lambda r: r["score"], reverse=True)
+
+    # PICK A LEVEL. The dreaming pass writes a topic's gist back as a new
+    # memory covering N others (derived_from), so a summary and its own members
+    # can rank for the same query — the same content twice, once condensed and
+    # once in full. Whichever ranked higher is the level this query wants: keep
+    # it, drop the other level of the SAME material. Without this, compression
+    # makes recall worse, which would make the dreaming pass not worth running.
+    # Applied before trimming so a suppressed member's slot goes to new
+    # material rather than being silently lost.
+    covered: set = set()
+    kept_ids: set = set()
+    levelled = []
+    for r in results:
+        if r["id"] in covered:
+            continue
+        members = r.get("derived_from")
+        if members:
+            # Both directions matter. A summary ranked above its members
+            # suppresses them (covered) — and a summary ranked BELOW one of
+            # its members is itself the losing level and gets dropped, or the
+            # detail and its own condensation would both be returned.
+            if any(m in kept_ids for m in members):
+                continue
+            covered.update(members)
+        kept_ids.add(r["id"])
+        levelled.append(r)
+    results = levelled
     cut_gap = None
     if collapse:
         # Resolve the treacle: cut at the natural relevance cliff, keep the air.

@@ -204,6 +204,56 @@ class TestBestOfBoth(unittest.TestCase):
         self.assertEqual(recall_json(person=self.ENT, project="foldraw"), blob,
                          "an explicit redact=False must round-trip the value untouched")
 
+    def test_recall_picks_a_level_between_summary_and_members(self):
+        # The dreaming pass writes summaries that COVER other memories
+        # (derived_from). Both levels rank for the same query; returning both
+        # is the same content twice, which is the failure mode that would make
+        # compression a net loss. The higher-ranked level wins, the other is
+        # suppressed, and the freed slot goes to new material.
+        from path_memory.db import get_conn
+        member_ids = []
+        for i in range(3):
+            member_ids.append(Memory.save(
+                f"payroll detail {i}", f"Detail {i} of the monthly payroll submission steps.",
+                person=self.ENT, project="levels", perspectives=False))
+        summary_id = Memory.save(
+            "Topic summary: payroll",
+            "The payroll process: monthly submission, the deadline, and the steps.",
+            person=self.ENT, project="levels", perspectives=False)
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("UPDATE memories SET derived_from = %s, derived_depth = 1, "
+                    "origin = 'recycle' WHERE id = %s", (member_ids, summary_id))
+        conn.commit(); cur.close(); conn.close()
+
+        got = recall("how does payroll submission work", person=self.ENT,
+                     project="levels", limit=4, increment_weight=False)
+        ids = [r["id"] for r in got]
+        if summary_id in ids:
+            for m in member_ids:
+                self.assertNotIn(m, ids,
+                                 "a member must not appear alongside the summary that covers it")
+        else:
+            # The members outranked the summary — then the summary must not
+            # ALSO appear below them repeating the same content.
+            self.assertNotIn(summary_id, ids)
+
+    def test_recall_tier_filter(self):
+        from path_memory.db import get_conn
+        kept = Memory.save("tier probe curated", "A curated note about the quarterly tax filing.",
+                           person=self.ENT, project="tiers", perspectives=False)
+        noisy = Memory.save("tier probe transcript", "A raw transcript line about the quarterly tax filing.",
+                            person=self.ENT, project="tiers", perspectives=False, tier="transcript")
+        got = recall("quarterly tax filing", person=self.ENT, project="tiers",
+                     tiers=("curated", "insight", "decision", "project"),
+                     limit=5, increment_weight=False)
+        ids = [r["id"] for r in got]
+        self.assertIn(kept, ids, "knowledge-tier search must find the curated memory")
+        self.assertNotIn(noisy, ids, "the transcript archive must stay out of a tier-scoped search")
+        unfiltered = recall("quarterly tax filing", person=self.ENT, project="tiers",
+                            limit=5, increment_weight=False)
+        self.assertIn(noisy, [r["id"] for r in unfiltered],
+                      "with no tier filter, transcripts are searchable as before")
+
     def test_creativity_injects_serendipity(self):
         # need more than `limit` candidates for near-misses to draw from
         for i in range(10):
