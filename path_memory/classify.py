@@ -1,4 +1,5 @@
 import os
+import sys as _sys
 from typing import Optional
 
 NOUN_TYPES = ("person", "place", "project", "thing")
@@ -28,8 +29,18 @@ def classify_noun(person: Optional[str], subject: str, body: str) -> str:
             max_tokens=5,
             messages=[{"role": "user", "content": prompt}],
         )
-        result = msg.content[0].text.strip().lower()
-        return result if result in NOUN_TYPES else "thing"
+        # A 5-token ceiling on a one-word answer is tight enough that truncation
+        # is a live possibility, and the old code hid it: "project" cut short
+        # fails the NOUN_TYPES membership test and silently became "thing". That
+        # is a wrong classification presented as a decision. Fall back to the
+        # heuristic instead — it is at least designed to guess — and say so.
+        if msg.stop_reason in ("max_tokens", "model_context_window_exceeded", "refusal"):
+            print(f"[engram] classify got {msg.stop_reason} for {subject!r} — using heuristic",
+                  file=_sys.stderr)
+            return _heuristic(person, subject, body)
+        result = "".join(b.text for b in msg.content
+                         if getattr(b, "type", None) == "text").strip().lower()
+        return result if result in NOUN_TYPES else _heuristic(person, subject, body)
     except Exception:
         return _heuristic(person, subject, body)
 

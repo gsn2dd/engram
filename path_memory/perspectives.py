@@ -11,6 +11,8 @@ automatically — but keep lenses genuinely orthogonal; redundant lenses only ad
 cost and noise, not recall.
 """
 import os
+import sys as _sys
+
 from .embed import embed
 
 PERSPECTIVE_LENSES = {
@@ -37,6 +39,17 @@ PERSPECTIVE_LENSES = {
 
 
 def _generate(lens_prompt, person, subject, body):
+    """One lens. Returns the text, or None if the model did not produce a
+    complete one.
+
+    stop_reason is checked because this call has a 220-token ceiling and a lens
+    becomes a SEARCH HANDLE — it is embedded and matched against future queries.
+    A response cut off at max_tokens returns HTTP 200 with a plausible fragment,
+    and storing that fragment gives the memory a permanently mangled handle that
+    nothing would ever flag. Half a lens is worse than no lens: the memory still
+    has its literal embedding to be found by, but a truncated handle actively
+    misdirects recall.
+    """
     from anthropic import Anthropic
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
@@ -46,7 +59,15 @@ def _generate(lens_prompt, person, subject, body):
         messages=[{"role": "user", "content":
             f"{lens_prompt}\n\nEntity: {person or '(none)'}\nSubject: {subject}\nBody: {body[:1500]}"}],
     )
-    return msg.content[0].text.strip()
+    if msg.stop_reason in ("max_tokens", "model_context_window_exceeded"):
+        print(f"[engram] lens truncated ({msg.stop_reason}) for {subject!r} — skipped",
+              file=_sys.stderr)
+        return None
+    if msg.stop_reason == "refusal":
+        print(f"[engram] lens refused for {subject!r} — skipped", file=_sys.stderr)
+        return None
+    text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text").strip()
+    return text or None
 
 
 def store_perspectives(cur, memory_id, person, subject, body):
@@ -61,6 +82,8 @@ def store_perspectives(cur, memory_id, person, subject, body):
     for name, prompt in PERSPECTIVE_LENSES.items():
         try:
             content = _generate(prompt, person, subject, body)
+            if not content:
+                continue      # incomplete or refused — never store a partial handle
             vec = embed([content])[0]
             vec_str = "[" + ",".join(str(x) for x in vec) + "]"
             cur.execute(
