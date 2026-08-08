@@ -21,6 +21,8 @@ slug gets noticed while it is one row rather than two thousand.
 """
 
 import difflib
+import hashlib
+import unicodedata
 import re
 from typing import List, Optional, Tuple
 
@@ -31,9 +33,26 @@ _SIMILARITY_WARN = 0.82
 
 
 def slugify(name: str) -> str:
-    """Fold a project name to the canonical shape: lowercase, hyphens, no junk."""
-    slug = re.sub(r"[^a-z0-9]+", "-", str(name or "").strip().lower())
-    return slug.strip("-")
+    """
+    Fold a project name to the canonical shape: lowercase, hyphens, no junk.
+
+    Non-Latin names are transliterated first, and if nothing survives, the slug
+    falls back to a stable hash of the original. Without that, a project called
+    "проект" or "プロジェクト" folded to the empty string, `ensure()` returned
+    None, and the memory was silently stored with NO project at all — the label
+    vanished with no error. An engine that only files projects with Latin names
+    is broken for most of the world; a hash slug is ugly but keeps the memory
+    filed and distinct, and the display name is preserved alongside it.
+    """
+    raw = str(name or "").strip()
+    folded = unicodedata.normalize("NFKD", raw.lower())
+    folded = folded.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", folded).strip("-")
+    if slug:
+        return slug[:60]
+    if not raw:
+        return ""
+    return "p-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
 
 
 def resolve(cur, name: Optional[str]) -> Optional[str]:

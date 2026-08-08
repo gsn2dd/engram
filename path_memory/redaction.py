@@ -42,6 +42,12 @@ _PATTERNS = [
 def scrub(text):
     """Return (scrubbed_text, redaction_version)."""
     out = str(text or "")
+    # Postgres text cannot hold a NUL byte, and psycopg2 raises ValueError
+    # rather than returning an error the caller can act on. Ingested content
+    # comes from the wild — browser captures, transcripts, pasted files — so a
+    # single stray NUL would otherwise abort the write with an exception that
+    # says nothing about which memory caused it.
+    out = out.replace("\x00", "")
     for rx, rep in _PATTERNS:
         out = rx.sub(rep, out)
     return out, REDACTION_VERSION
