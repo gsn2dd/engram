@@ -100,6 +100,22 @@ trap 'rm -f "$USER_DATA"' EXIT
     tail -n +2 "${HERE}/provision.sh"
 } > "$USER_DATA"
 
+# EC2 caps user-data at 25,600 bytes and the assembled script outgrew it in
+# 0.4.0 (RunInstances fails with InvalidParameterValue). cloud-init accepts
+# gzipped user-data transparently, so compress — roughly 3x headroom — and
+# check the compressed size too so the eventual re-overflow is a clear message
+# here rather than a launch error.
+gzip -f "$USER_DATA"
+USER_DATA="${USER_DATA}.gz"
+SIZE=$(stat -c%s "$USER_DATA")
+if [ "$SIZE" -gt 25600 ]; then
+    echo "ERROR: user-data is ${SIZE} bytes even gzipped (limit 25600)." >&2
+    echo "Move helper content out of user-data (e.g. fetch from the repo) before building." >&2
+    exit 1
+fi
+echo "==> user-data: ${SIZE} bytes gzipped"
+trap 'rm -f "$USER_DATA"' EXIT
+
 RUN_ARGS=(
     --image-id "$BASE_AMI"
     --instance-type "$INSTANCE_TYPE"
