@@ -71,3 +71,12 @@ whether anything in (1) or (2) is actually worth keeping.
 Run a brain for real, for a while, and tell us what it remembered and what it
 forgot. That single signal is worth more than any feature we could guess at.
 Open an issue with what your brain got right and what drifted.
+
+## Scheduled removals
+
+- **`dream_state` → `dream_watermarks` migration shim** (`path_memory/dream.py::_ensure_state`):
+  the one-time carry-over of the old global reading watermark into per-project
+  rows. Every known brain (mindspace, the AMI line from 0.4.0) has migrated.
+  Remove in 0.6.0 — after one release of soak, so any brain upgraded straight
+  from ≤0.3.x still crosses the bridge once. The `dream_state` table itself
+  goes at the same time.
