@@ -121,7 +121,7 @@ $( [ "$EMBED" = set ] && echo "
 
   ── EVERYDAY ───────────────────────────────────────────────────────────────
 
-    engram-help                              this guide
+    get_started  (or engram-help)            this guide
     journalctl -u engram -f                  logs
     sudo systemctl restart engram            restart after a config change
     docker exec engram python3 cli/pm.py dream       run consolidation by hand

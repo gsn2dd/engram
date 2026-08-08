@@ -28,10 +28,10 @@ printf '  service %s · embedding key %s · %s memories\n\n' \
 if [ "$EMBED" = "missing" ]; then
     printf '  \033[1mNothing can be stored yet — it needs an embedding key.\033[0m\n'
     printf '  You do NOT need Claude Code, Codex or any subscription for this.\n\n'
-    printf '      \033[1mengram-help\033[0m     how to set the key, with the exact commands\n\n'
+    printf '      \033[1mget_started\033[0m     how to set the key, with the exact commands\n\n'
 elif [ "$RUNNING" != "running" ]; then
     printf '  Service is not running:  sudo systemctl status engram\n\n'
-    printf '      \033[1mengram-help\033[0m     setup and troubleshooting\n\n'
+    printf '      \033[1mget_started\033[0m     setup and troubleshooting\n\n'
 else
-    printf '      \033[1mengram-help\033[0m     connect an agent, capture conversations, tune it\n\n'
+    printf '      \033[1mget_started\033[0m     connect an agent, capture conversations, tune it\n\n'
 fi

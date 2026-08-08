@@ -91,7 +91,7 @@ trap 'rm -f "$USER_DATA"' EXIT
     # Stage the helper scripts onto the builder. They are kept as real files in
     # the repo rather than heredocs inside provision.sh so they can be reviewed,
     # diffed and syntax-checked like any other code.
-    for helper in engram-fetch-keys.sh engram-welcome.sh engram-help.sh; do
+    for helper in engram-fetch-keys.sh engram-welcome.sh engram-help.sh engram-aliases.sh; do
         echo "cat > /tmp/${helper} <<'ENGRAM_HELPER_EOF'"
         cat "${HERE}/${helper}"
         echo "ENGRAM_HELPER_EOF"
