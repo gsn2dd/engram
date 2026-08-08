@@ -149,6 +149,63 @@ CREATE INDEX IF NOT EXISTS collapse_keys_name_idx ON collapse_keys(name);
 CREATE INDEX IF NOT EXISTS collapse_keys_centroid_idx
     ON collapse_keys USING hnsw (centroid vector_cosine_ops);
 
+-- TOPICS — sub-classification inside a project.
+--
+-- `project` answers "which body of work"; a topic answers "which THING inside
+-- it". A conversation about building the Banbury hub is project=worldtownguide,
+-- topic=banbury — so recall can be narrowed to Banbury without inventing a
+-- separate project for every town.
+--
+-- Topics are DISCOVERED, not enumerated. Two sources, both the same underlying
+-- move (cluster, then name):
+--   promoted  — a collapse doorway that keeps re-forming. Repeated resolution
+--               IS the evidence that a set is a durable thing rather than one
+--               query's accident, so usage promotes it.
+--   discovered— the dreaming pass clustering a project's memories offline,
+--               including transcripts, where a subject appears in conversation
+--               long before anyone writes a curated memory about it.
+CREATE TABLE IF NOT EXISTS topics (
+    project      text NOT NULL REFERENCES projects(slug) ON UPDATE CASCADE,
+    slug         text NOT NULL,
+    label        text,
+    gist         text,
+    centroid     vector(768),
+    source       text DEFAULT 'discovered'
+                 CHECK (source IN ('promoted','discovered','manual')),
+    member_count integer     DEFAULT 0,
+    created_at   timestamptz DEFAULT now(),
+    last_seen    timestamptz DEFAULT now(),
+    PRIMARY KEY (project, slug)
+);
+
+CREATE INDEX IF NOT EXISTS topics_centroid_idx
+    ON topics USING hnsw (centroid vector_cosine_ops);
+
+-- Many-to-many on purpose: one memory can be about Banbury AND about
+-- sponsorship. Forcing a single topic would make the tag a worse version of
+-- the project column rather than a finer one.
+CREATE TABLE IF NOT EXISTS memory_topics (
+    memory_id   integer NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    project     text    NOT NULL,
+    slug        text    NOT NULL,
+    confidence  real,
+    assigned_by text    DEFAULT 'dream',
+    created_at  timestamptz DEFAULT now(),
+    PRIMARY KEY (memory_id, project, slug),
+    FOREIGN KEY (project, slug) REFERENCES topics(project, slug) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS memory_topics_topic_idx ON memory_topics(project, slug);
+
+-- Derived memories are marked so recall can tell a summary from a thing that
+-- actually happened. `origin='recycle'` already existed and means exactly this;
+-- these columns record WHAT it was derived from, so a summary is auditable back
+-- to its sources rather than being an unattributable assertion.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS derived_from integer[];
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS derived_depth integer DEFAULT 0;
+CREATE INDEX IF NOT EXISTS memories_origin_recycle_idx
+    ON memories(origin) WHERE origin = 'recycle';
+
 ALTER TABLE memories ADD CONSTRAINT memories_node_key_uniq UNIQUE (node_key);
 CREATE INDEX IF NOT EXISTS memories_node_type_idx ON memories(node_type) WHERE node_type IS NOT NULL;
 CREATE INDEX IF NOT EXISTS memories_origin_idx    ON memories(origin);
