@@ -13,6 +13,23 @@ W_COVERAGE = 0.1
 
 RECENCY_HALF_LIFE_DAYS = 30   # weight halves every 30 days of non-use
 
+# How much use-history may lift a memory, as a fraction on top of its relevance.
+#
+# The original formula added weight (0.7) and cosine (0.1) as peers, so
+# popularity outranked relevance by design: warming eight espresso memories with
+# one query made the NEXT query, about VAT deadlines, return all five espresso
+# memories ahead of the exact matches. Measured on that corpus: VAT cosine 0.75
+# vs espresso 0.42 — a 1.8x relevance difference — against a 10x swing from
+# use-history alone (multiplier 0.1 unused vs 1.0 used). Relevance never stood a
+# chance.
+#
+# Use-history is now a BOUNDED bonus on top of relevance: a fully-warmed memory
+# is worth at most ~1.5x its cosine. Anything more relevant than that still
+# wins, so popularity can no longer answer a question it is not about — while
+# within a band of comparable relevance the proven-useful memory still leads,
+# which is the entire point of a use-built graph.
+USE_BONUS = 0.5
+
 # Calendar time is a soft ranking signal, not just a display label. A
 # "current" anchored memory (the event is happening now) gets a small
 # boost; "past" gets a small penalty, since its body text may still read
@@ -178,7 +195,22 @@ def recall(
     if noun_type: _filter("noun_type", "m.noun_type", noun_type)
     if node_type: _filter("node_type", "m.node_type", node_type)
     if origin:    _filter("origin",    "m.origin",    origin)
-    if project:   _filter("project",   "m.project",   project)
+    # Resolve the project the same way Memory.save does. Without this a memory
+    # written with project="My Project" (stored as "my-project") is invisible to
+    # a recall using the identical string the caller just wrote — and any
+    # registered alias misses too. Reproduced: save then recall with the same
+    # argument returned zero rows.
+    if project:
+        _resolved_project = project
+        try:
+            _rconn = get_conn()
+            _rcur = _rconn.cursor()
+            from . import projects as _projects
+            _resolved_project = _projects.resolve(_rcur, project) or project
+            _rcur.close(); _rconn.close()
+        except Exception:
+            pass
+        _filter("project", "m.project", _resolved_project)
 
     where   = " AND ".join(filters)
     p_where = " AND ".join(p_filters)
@@ -236,6 +268,15 @@ def recall(
 
     rows = list(by_id.values())
 
+    # Normalise weight against the strongest candidate in THIS pool rather than
+    # using it raw. Raw weight dominates on a young brain: eight memories warmed
+    # by one query then outranked an exact match on the next, returning 5/5
+    # wrong results and staying wrong for a week. Dividing by the pool maximum
+    # makes a uniformly-cold pool contribute nothing (cosine decides, which is
+    # correct when there is no use-history to consult) while preserving the
+    # relative ordering that makes a warm brain good.
+    _max_weight = max((float(r[10]) for r in rows), default=0.0) or 1.0
+
     results = []
     for row in rows:
         cosine  = float(row[9])
@@ -245,7 +286,20 @@ def recall(
         factor  = TEMPORAL_FACTOR.get(status, 1.0)
         if row[18] is not None:                  # superseded -> ranks below its replacement
             factor *= SUPERSEDED_FACTOR
-        score   = (W_WEIGHT * weight + W_RECENCY * recency + W_COVERAGE * cosine) * factor
+        # Relevance GATES use-history rather than competing with it.
+        #
+        # The additive form made weight (0.7) outrank cosine (0.1), so a
+        # popular memory beat a relevant one outright: warming eight espresso
+        # memories with one query made the next query, about VAT deadlines,
+        # return all five espresso memories ahead of the exact match. Popularity
+        # is a global signal; the query is asking about relevance.
+        #
+        # Multiplying keeps the intended behaviour — among memories that DO
+        # match, a proven-useful one still outranks a fresher-but-unused one,
+        # which is the whole point of a use-built graph — while making it
+        # impossible for use-history to rescue something the query is not about.
+        score   = cosine * (1.0 + USE_BONUS * (W_WEIGHT * (weight / _max_weight)
+                                               + W_RECENCY * recency)) * factor
 
         results.append({
             "id":            row[0],

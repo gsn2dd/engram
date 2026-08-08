@@ -153,6 +153,34 @@ class TestBestOfBoth(unittest.TestCase):
                      collapse=True, increment_weight=False)
         self.assertEqual(len(one), 1, "collapse with a single candidate must return it, not raise")
 
+    def test_recall_resolves_the_project_through_the_alias_registry(self):
+        # Memory.save normalises the project; recall used to filter on the raw
+        # string, so a memory was invisible under the very name it was written
+        # with — no error, just nothing.
+        Memory.save("alias probe", "Stored under a human-written project name.",
+                    person=self.ENT, project="My Test Project", perspectives=False)
+        got = recall("alias probe", person=self.ENT, project="My Test Project",
+                     limit=3, increment_weight=False)
+        self.assertTrue(got, "a memory must be recallable under the project name it was saved with")
+
+    def test_use_history_cannot_outrank_relevance(self):
+        # Warming one cluster used to hijack every later query: popularity was
+        # weighted 0.7 against relevance at 0.1, so eight warmed memories
+        # answered a question about something else entirely.
+        for i in range(6):
+            Memory.save(f"kettle note {i}", f"Note {i} on descaling the office kettle.",
+                        person=self.ENT, project="rank", perspectives=False)
+        for i in range(6):
+            Memory.save(f"payroll note {i}", f"Note {i} on the monthly payroll submission deadline.",
+                        person=self.ENT, project="rank", perspectives=False)
+        recall("how do I descale the kettle", person=self.ENT, project="rank", limit=5)
+        after = recall("when is the payroll deadline", person=self.ENT, project="rank",
+                       limit=5, increment_weight=False)
+        subjects = [r["subject"] or "" for r in after]
+        self.assertGreaterEqual(
+            sum(1 for s in subjects if "payroll" in s), 4,
+            f"a warmed cluster must not answer an unrelated query; got {subjects}")
+
     def test_collapse_keeps_the_boundary_it_resolved(self):
         # The point of the feature: a resolution that used to be discarded is
         # kept, so the second identical question reuses the doorway instead of
