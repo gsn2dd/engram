@@ -70,6 +70,10 @@ class TestDreamWatermarks(unittest.TestCase):
                              (ids, ids))
             self.cur.execute("DELETE FROM memories WHERE id = ANY(%s)", (ids,))
         self.cur.execute("DELETE FROM topics WHERE project = ANY(%s)", ([self.A, self.B],))
+        # The fairness test's stub tags whatever it is shown, including other
+        # projects' memories that happen to be unread in a shared test database.
+        self.cur.execute("DELETE FROM memory_topics WHERE slug = 'shared-subject'")
+        self.cur.execute("DELETE FROM topics WHERE slug = 'shared-subject'")
         # Every reference must go before the project row itself can, or the FK
         # test cannot reach the state it exists to reproduce.
         self.cur.execute("DELETE FROM memory_projects WHERE project = ANY(%s)",
@@ -146,6 +150,48 @@ class TestDreamWatermarks(unittest.TestCase):
         self.conn.commit()
         self.assertEqual(dream._watermark(self.cur, self.A), 0,
                          "a failed model call must leave the batch unread")
+
+    def test_every_project_gets_read_not_just_the_biggest(self):
+        # `found` collects one entry per (memory, topic) PAIR, so the old
+        # `len(found) >= limit` break tripped on the first project's first batch
+        # and ended the whole loop. One project was read per run — always the
+        # largest — and the model budget went mostly unspent. Smaller projects
+        # sat unread indefinitely behind it.
+        big = self._add(self.A, 60)
+        small = self._add(self.B, 4)
+        calls = []
+
+        def fake(listing, project):
+            calls.append(project)
+            ids = [int(line.split()[1]) for line in listing.splitlines()
+                   if line.startswith("id: ")]
+            return [{"id": i, "topics": ["shared subject"]} for i in ids]
+
+        # The budget has to cover every project carrying unread rows, not just
+        # this test's two — the point being proved is that the loop keeps going
+        # round, not that it happens to reach B first.
+        self.cur.execute(
+            """SELECT count(DISTINCT m.project) FROM memories m
+               LEFT JOIN dream_watermarks w ON w.project = m.project
+               WHERE m.project IS NOT NULL AND NOT m.archived
+                 AND m.origin IS DISTINCT FROM 'recycle'
+                 AND m.id > coalesce(w.last_memory_id, 0)""")
+        budget = dream._Budget(self.cur.fetchone()[0] + 2)
+        original, dream._extract = dream._extract, fake
+        try:
+            dream.extract_topics(self.cur, budget, batch=40)
+        finally:
+            dream._extract = original
+        self.conn.commit()
+        self.assertIn(self.B, calls,
+                      f"the smaller project must be read too; only read {calls}")
+        self.assertGreater(dream._watermark(self.cur, self.B), 0,
+                           "the smaller project's watermark should have moved")
+        self.assertEqual(dream._watermark(self.cur, self.B), max(small))
+        # And the big one is not starved either: it gets a second turn once
+        # every project has had a first.
+        self.assertEqual(dream._watermark(self.cur, self.A), max(big),
+                         "a project with more than one batch should get another turn")
 
     def test_unregistered_project_does_not_break_the_pass(self):
         # topics.project is a foreign key into the registry; memories.project is

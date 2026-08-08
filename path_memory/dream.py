@@ -262,7 +262,7 @@ Rules:
 
 
 def extract_topics(cur, budget: _Budget, project: Optional[str] = None,
-                   batch: int = 40, limit: int = 3) -> List[Dict]:
+                   batch: int = 40, max_assignments: int = 5000) -> List[Dict]:
     """
     Read memories and extract the subjects they are about.
 
@@ -297,85 +297,113 @@ def extract_topics(cur, budget: _Budget, project: Optional[str] = None,
         projects = [r[0] for r in cur.fetchall()]
 
     found = []
-    for proj in projects:
-        if len(found) >= limit or budget.spent >= budget.total:
-            break
-        # Transcripts are included deliberately: a subject appears in
-        # conversation long before anyone writes a curated memory about it, so
-        # the raw exchanges are where a new topic shows up first.
-        # Read FORWARD from the watermark, oldest first. The record set is
-        # traversed once; an hour with nothing new costs nothing at all,
-        # because the query returns no rows and no model is ever called.
-        cur.execute(
-            """SELECT m.id, m.subject, left(m.body, 400)
-               FROM memories m
-               WHERE m.project = %s AND NOT m.archived AND m.id > %s
-                 AND m.origin IS DISTINCT FROM 'recycle'
-               ORDER BY m.id ASC LIMIT %s""",
-            (proj, _watermark(cur, proj), batch))
-        rows = cur.fetchall()
-        if not rows:
-            continue
-        if not budget.take():
-            break
-        highest = max(r[0] for r in rows)
-        # topics.project is a foreign key into the registry, but memories.project
-        # is a free-text column that predates it — a project can be perfectly
-        # real, hold hundreds of memories, and have no registry row. Inserting
-        # the raw value raised a FK violation, and because the whole pass shares
-        # one transaction, that rolled back every topic the run had found, not
-        # just this one. Resolve through the aliases first so a known project is
-        # not registered twice under a second spelling.
-        registered = _projects.resolve(cur, proj)
-        if not registered:
-            registered = _projects.ensure(cur, proj)[0]
+    # Round-robin: one batch per project per turn, until the model budget runs
+    # out or every project has been read up to date.
+    #
+    # This was a single pass over the projects with a `len(found) >= limit`
+    # break, and `found` counts one entry per (memory, topic) PAIR — so the
+    # first project's first batch blew straight through a limit of 3 and broke
+    # the loop. Exactly one project was read per run, always the largest, and
+    # the model budget went mostly unspent: a run allowed 8 calls used 2. Every
+    # other project sat unread behind it, which is the same unfairness the
+    # per-project watermark exists to prevent.
+    #
+    # The budget is the real cost ceiling and is sufficient on its own. Giving
+    # every project a turn before any project gets a second one is what makes
+    # that ceiling fair rather than merely bounded.
+    pending = list(projects)
+    while pending and budget.spent < budget.total and len(found) < max_assignments:
+        next_round = []
+        for proj in pending:
+            if budget.spent >= budget.total or len(found) >= max_assignments:
+                next_round.append(proj)
+                continue
 
-        listing = "\n\n".join(
-            f"id: {r[0]}\nsubject: {' '.join((r[1] or '').split())[:140]}\n"
-            f"body: {' '.join((r[2] or '').split())[:300]}"
-            for r in rows)
-        extracted = _extract(listing, proj)
-        if extracted is None:
-            # The CALL failed (no key, API error, refusal). These memories have
-            # not been read, so the watermark must not move past them.
-            continue
-        if not extracted:
-            # Read successfully; the batch simply had no durable subject in it.
-            # This must still advance, or the same batch is re-read every run
-            # forever — one wasted model call an hour, and the pass never
-            # reaches anything newer. That is the difference between "nothing
-            # to say" and "could not ask", and it is why _extract distinguishes
-            # [] from None.
+            # Transcripts are included deliberately: a subject appears in
+            # conversation long before anyone writes a curated memory about it,
+            # so the raw exchanges are where a new topic shows up first.
+            # Read FORWARD from the watermark, oldest first. The record set is
+            # traversed once; an hour with nothing new costs nothing at all,
+            # because the query returns no rows and no model is ever called.
+            cur.execute(
+                """SELECT m.id, m.subject, left(m.body, 400)
+                   FROM memories m
+                   WHERE m.project = %s AND NOT m.archived AND m.id > %s
+                     AND m.origin IS DISTINCT FROM 'recycle'
+                   ORDER BY m.id ASC LIMIT %s""",
+                (proj, _watermark(cur, proj), batch))
+            rows = cur.fetchall()
+            if not rows:
+                continue          # this project is read up to date; drop it
+            if not budget.take():
+                next_round.append(proj)
+                continue
+            highest = max(r[0] for r in rows)
+
+            # topics.project is a foreign key into the registry, but
+            # memories.project is free text that predates it — a project can be
+            # perfectly real, hold hundreds of memories, and have no registry
+            # row. Inserting the raw value raised a FK violation, and because
+            # the whole pass shares one transaction that rolled back every topic
+            # the run had found, not just this one. Resolve through the aliases
+            # first so a known project is not registered twice under a second
+            # spelling.
+            registered = _projects.resolve(cur, proj)
+            if not registered:
+                registered = _projects.ensure(cur, proj)[0]
+
+            listing = "\n\n".join(
+                f"id: {r[0]}\nsubject: {' '.join((r[1] or '').split())[:140]}\n"
+                f"body: {' '.join((r[2] or '').split())[:300]}"
+                for r in rows)
+            extracted = _extract(listing, proj)
+
+            if extracted is None:
+                # The CALL failed (no key, API error, refusal). These memories
+                # have not been read, so the watermark must not move past them
+                # — and there is no point retrying the same project this run.
+                continue
+            if not extracted:
+                # Read successfully; the batch simply held no durable subject.
+                # This must still advance, or the same batch is re-read every
+                # run forever: one wasted model call an hour, and the pass never
+                # reaches anything newer. That is the difference between
+                # "nothing to say" and "could not ask", and it is why _extract
+                # distinguishes [] from None.
+                _advance(cur, proj, highest)
+                next_round.append(proj)
+                continue
+
+            counts: Dict[str, int] = {}
+            for item in extracted:
+                for raw in item.get("topics") or []:
+                    slug = _slugify(raw)
+                    if slug:
+                        counts[slug] = counts.get(slug, 0) + 1
+
+            for item in extracted:
+                mid = item.get("id")
+                for raw in item.get("topics") or []:
+                    slug = _slugify(raw)
+                    # A tag seen once in a batch is usually a one-off phrasing,
+                    # not a subject the work returns to. Requiring it twice
+                    # keeps the topic list from fragmenting into near-synonyms.
+                    if not slug or counts.get(slug, 0) < 2:
+                        continue
+                    cur.execute(
+                        """INSERT INTO topics (project, slug, label, source)
+                           VALUES (%s,%s,%s,'discovered')
+                           ON CONFLICT (project, slug) DO UPDATE SET last_seen = now()""",
+                        (registered, slug, slug.replace("-", " ")))
+                    cur.execute(
+                        """INSERT INTO memory_topics (memory_id, project, slug, confidence, assigned_by)
+                           VALUES (%s,%s,%s,1.0,'read') ON CONFLICT DO NOTHING""",
+                        (mid, registered, slug))
+                    found.append({"project": registered, "slug": slug, "memory_id": mid})
+
             _advance(cur, proj, highest)
-            continue
-
-        counts: Dict[str, int] = {}
-        for item in extracted:
-            for raw in item.get("topics") or []:
-                slug = _slugify(raw)
-                if slug:
-                    counts[slug] = counts.get(slug, 0) + 1
-
-        for item in extracted:
-            mid = item.get("id")
-            for raw in item.get("topics") or []:
-                slug = _slugify(raw)
-                # A tag seen once in a batch is usually a one-off phrasing, not
-                # a subject the work returns to. Requiring it twice keeps the
-                # topic list from fragmenting into near-synonyms.
-                if not slug or counts.get(slug, 0) < 2:
-                    continue
-                cur.execute(
-                    """INSERT INTO topics (project, slug, label, source)
-                       VALUES (%s,%s,%s,'discovered')
-                       ON CONFLICT (project, slug) DO UPDATE SET last_seen = now()""",
-                    (registered, slug, slug.replace("-", " ")))
-                cur.execute(
-                    """INSERT INTO memory_topics (memory_id, project, slug, confidence, assigned_by)
-                       VALUES (%s,%s,%s,1.0,'read') ON CONFLICT DO NOTHING""",
-                    (mid, registered, slug))
-                found.append({"project": registered, "slug": slug, "memory_id": mid})
-        _advance(cur, proj, highest)
+            next_round.append(proj)   # may still have more to read
+        pending = next_round
     return found
 
 
