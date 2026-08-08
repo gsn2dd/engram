@@ -41,7 +41,10 @@ Handled by `provision.sh` unless noted:
       is never published
 - [ ] Run the AMI scan and clear every finding. Budget for a second build:
       first-time scans usually surface something
-- [ ] Share the AMI with the AWS Marketplace scanning account before submitting
+- [ ] Share the AMI with the AWS Marketplace scanning account before
+      submitting: launch permission on the AMI AND createVolumePermission on
+      its snapshot, both to account 679593333241 — the AMI share alone is not
+      enough for the scanner to read the disk
 
 ## 3. Security posture to state in the listing
 
@@ -52,7 +55,13 @@ Say this plainly rather than letting a customer discover it:
 > expose port 8080 to a network you do not control.
 
 - [x] IMDSv2 required
-- [x] EBS encrypted at rest
+- [x] Source AMI snapshot UNENCRYPTED — a Marketplace requirement, not an
+      oversight. An encrypted snapshot (default KMS key) cannot be shared with
+      the scanning account at all; the first build had this exactly backwards
+      and the share silently could never have worked. Customers still get
+      encryption at rest: the CloudFormation template encrypts the volume at
+      LAUNCH, which is where it protects the customer's data rather than our
+      empty image.
 - [x] Least-privilege instance role — SSM core, plus read on this stack's own
       parameter path only
 - [x] Security group has **no** inbound rules unless SSH is explicitly requested
