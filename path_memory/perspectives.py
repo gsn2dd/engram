@@ -11,9 +11,9 @@ automatically — but keep lenses genuinely orthogonal; redundant lenses only ad
 cost and noise, not recall.
 """
 import os
-import sys as _sys
 
 from .embed import embed
+from .llm import complete_text
 
 PERSPECTIVE_LENSES = {
     "thematic": (
@@ -59,15 +59,7 @@ def _generate(lens_prompt, person, subject, body):
         messages=[{"role": "user", "content":
             f"{lens_prompt}\n\nEntity: {person or '(none)'}\nSubject: {subject}\nBody: {body[:1500]}"}],
     )
-    if msg.stop_reason in ("max_tokens", "model_context_window_exceeded"):
-        print(f"[engram] lens truncated ({msg.stop_reason}) for {subject!r} — skipped",
-              file=_sys.stderr)
-        return None
-    if msg.stop_reason == "refusal":
-        print(f"[engram] lens refused for {subject!r} — skipped", file=_sys.stderr)
-        return None
-    text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text").strip()
-    return text or None
+    return complete_text(msg, what=f"lens for {subject!r}")
 
 
 def store_perspectives(cur, memory_id, person, subject, body):

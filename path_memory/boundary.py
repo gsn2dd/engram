@@ -38,6 +38,8 @@ import os
 import sys
 from typing import Dict, List, Optional
 
+from .llm import complete_text
+
 # Below this the resolution wasn't clean enough to be worth naming: a shallow
 # cliff means the field never really separated into wall and air.
 MIN_GAP_TO_KEEP = float(os.environ.get("ENGRAM_BOUNDARY_MIN_GAP", "0.18"))
@@ -157,9 +159,12 @@ def _name_cluster(subjects: List[str], query: Optional[str]) -> Dict[str, str]:
     except Exception:
         return fallback
 
-    if response.stop_reason == "refusal":
-        return fallback
-    text = next((b.text for b in response.content if b.type == "text"), None)
+    # The max_tokens comment above anticipated truncation but nothing checked
+    # for it: a cut-off response produced invalid JSON, fell through to the
+    # generic except, and returned the dumb fallback. Safe, but indistinguishable
+    # from "no model configured" — a degradation path that is also the error
+    # path is how a failure becomes invisible.
+    text = complete_text(response, what="cluster naming")
     if not text:
         return fallback
     try:

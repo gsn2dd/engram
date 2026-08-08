@@ -31,6 +31,7 @@ import re
 from typing import Dict, List, Optional
 
 from . import projects
+from .llm import complete_text
 
 MODEL = os.environ.get("ENGRAM_CLASSIFY_MODEL", "claude-opus-5")
 ENABLED = os.environ.get("ENGRAM_CLASSIFY", "auto").strip().lower()
@@ -157,11 +158,11 @@ def _ask_model(subject: str, body: str, active: Optional[str], candidates: List[
     except Exception:
         return None
 
-    # A refusal returns HTTP 200 with an empty/partial content list — reading
-    # content[0] blindly would raise on a perfectly successful request.
-    if response.stop_reason == "refusal":
-        return None
-    text = next((b.text for b in response.content if b.type == "text"), None)
+    # A refusal or a truncation both return HTTP 200. Truncation matters here
+    # even though the JSON parse below would fail anyway: without the check the
+    # cause is invisible, and "classifier returned nothing" reads as a model
+    # limitation rather than a max_tokens ceiling somebody can raise.
+    text = complete_text(response, what="project classification")
     if not text:
         return None
     try:

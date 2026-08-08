@@ -125,3 +125,41 @@ class TestClassifyTruncation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCompleteTextHelper(unittest.TestCase):
+    """The shared gate every engram call site now goes through."""
+
+    def test_truncation_and_refusal_and_pause_all_return_none(self):
+        from path_memory.llm import complete_text
+        for stop in ("max_tokens", "model_context_window_exceeded", "refusal", "pause_turn"):
+            with self.subTest(stop=stop):
+                self.assertIsNone(complete_text(_Msg("a fragment", stop), quiet=True),
+                                  f"{stop} must never yield usable text")
+
+    def test_a_clean_response_returns_its_text(self):
+        from path_memory.llm import complete_text
+        self.assertEqual(complete_text(_Msg("  the answer  ", "end_turn")), "the answer")
+
+    def test_empty_text_is_none(self):
+        from path_memory.llm import complete_text
+        self.assertIsNone(complete_text(_Msg("   ", "end_turn")))
+
+    def test_non_text_blocks_are_skipped_not_indexed(self):
+        # content[0] is not guaranteed to be a text block. Blind indexing was
+        # the other half of this bug class.
+        from path_memory.llm import complete_text
+
+        class _Thinking:
+            type = "thinking"
+            thinking = "pondering"
+
+        msg = _Msg("the answer", "end_turn")
+        msg.content = [_Thinking(), _Block("the answer")]
+        self.assertEqual(complete_text(msg), "the answer")
+
+    def test_missing_content_does_not_raise(self):
+        from path_memory.llm import complete_text
+        msg = _Msg("", "end_turn")
+        msg.content = []
+        self.assertIsNone(complete_text(msg))

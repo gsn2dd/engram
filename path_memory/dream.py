@@ -53,6 +53,7 @@ from typing import Dict, List, Optional
 from .db import get_conn
 from . import boundary
 from . import projects as _projects
+from .llm import complete_text
 
 # Model calls per run, shared across the stages that name things. The tagging
 # and ageing stages are free and are not counted.
@@ -461,11 +462,17 @@ def _extract(listing: str, project: str) -> Optional[List[Dict]]:
             messages=[{"role": "user",
                        "content": f"Project: {project}\n\n{listing}"}],
         )
-        if response.stop_reason == "refusal":
+        # Truncation and refusal both land here as None, which the caller
+        # treats as "could not ask" and therefore does NOT advance the
+        # watermark past these memories. Without the explicit check a cut-off
+        # response still failed, but via a JSON parse error whose message
+        # blamed the wrong thing.
+        text = complete_text(response, what="topic extraction")
+        if text is None:
             return None
-        text = next((b.text for b in response.content if b.type == "text"), None)
         import json as _json
-        return (_json.loads(text) or {}).get("memories", []) if text else []
+        parsed = _json.loads(text)
+        return parsed.get("memories", []) if isinstance(parsed, dict) else []
     except Exception as exc:
         print(f"[dream] extraction failed: {exc}", file=sys.stderr)
         return None
