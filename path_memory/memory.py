@@ -164,6 +164,17 @@ class Memory:
         # Fan-out perspective lenses: index this memory under several orthogonal
         # angles so it's findable from more than its literal wording. Shares this
         # transaction; a lens failure is swallowed and never blocks the save.
+        #
+        # NOT for bulk archival tiers. Each lens is a model call plus an
+        # embedding, so the fan-out costs 3x per memory — worth it for a curated
+        # memory someone chose to keep, wasteful for raw captured exchanges that
+        # arrive in their hundreds. Measured on the private brain: a single
+        # backfill of 557 transcripts generated 2,445 perspective rows, and
+        # therefore 2,445 unplanned model calls, with nothing bounding it.
+        # This matches the existing rule that transcripts are kept out of the
+        # path graph: archival tiers are stored and searchable, not elaborated.
+        if tier not in ("curated", "insight", "decision", "project"):
+            perspectives = False
         if perspectives:
             from .perspectives import store_perspectives
             try:
