@@ -115,6 +115,40 @@ CREATE TABLE IF NOT EXISTS memory_projects (
 CREATE INDEX IF NOT EXISTS memory_projects_project_role_idx
     ON memory_projects(project, role);
 
+-- RESOLVED BOUNDARIES. `collapse` does the expensive work of separating the
+-- relevance field into keep and drop, and used to discard the result. Each row
+-- here is one resolution kept: a named doorway with the set it resolved to.
+--
+-- The point is the reversal. A query embeds, matches a centroid HERE (a scan of
+-- doorways, not of the corpus), and the doorway yields its members by exact id.
+-- Fuzzy on the way in, exact on the way out — and the name is a handle a human
+-- or agent can use directly, without a vector at all.
+--
+-- `key` is derived from the member set, not assigned, so the same cluster
+-- re-resolving lands on its own key and increments query_count instead of
+-- creating a rival. A doorway that keeps re-forming is thereby visibly
+-- load-bearing, the same way a well-used edge is.
+CREATE TABLE IF NOT EXISTS collapse_keys (
+    key           text PRIMARY KEY,      -- sha256 of the sorted member ids
+    name          text,                  -- generated handle; a label, not an authority
+    gist          text,
+    centroid      vector(768),           -- mean of member embeddings
+    member_ids    integer[] NOT NULL,
+    cut_gap       real,                  -- how cleanly the field separated
+    example_query text,
+    query_count   integer     DEFAULT 1, -- times this doorway has been resolved or used
+    formed_at     timestamptz DEFAULT now(),
+    last_used     timestamptz DEFAULT now(),
+    -- Set by consolidation when memories arrive after formed_at. Stale is not
+    -- wrong, it is INCOMPLETE: the members still cohere, something newer may
+    -- also belong. Re-resolving is the offline pass's job.
+    stale         boolean     DEFAULT false
+);
+
+CREATE INDEX IF NOT EXISTS collapse_keys_name_idx ON collapse_keys(name);
+CREATE INDEX IF NOT EXISTS collapse_keys_centroid_idx
+    ON collapse_keys USING hnsw (centroid vector_cosine_ops);
+
 ALTER TABLE memories ADD CONSTRAINT memories_node_key_uniq UNIQUE (node_key);
 CREATE INDEX IF NOT EXISTS memories_node_type_idx ON memories(node_type) WHERE node_type IS NOT NULL;
 CREATE INDEX IF NOT EXISTS memories_origin_idx    ON memories(origin);

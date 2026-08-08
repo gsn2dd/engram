@@ -14,7 +14,12 @@ from path_memory.memory import Memory
 from path_memory.recall import recall
 from path_memory.db import get_conn
 
-HAVE_KEYS = bool(os.environ.get("OPENAI_API_KEY") and os.environ.get("ANTHROPIC_API_KEY"))
+# The embedding provider is pluggable, so this gate must be too — hardcoding
+# OPENAI_API_KEY silently skipped the entire DB-backed suite on a brain
+# configured for Gemini.
+HAVE_EMBED = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+                  or os.environ.get("OPENAI_API_KEY"))
+HAVE_KEYS = bool(HAVE_EMBED and os.environ.get("ANTHROPIC_API_KEY"))
 
 
 @unittest.skipUnless(HAVE_KEYS, "needs OPENAI_API_KEY + ANTHROPIC_API_KEY")
@@ -132,6 +137,56 @@ class TestBestOfBoth(unittest.TestCase):
                         "high creativity should inject at least one near-miss memory")
         self.assertTrue(any(not r.get("serendipity") for r in creative),
                         "creativity must still keep precise results (incl. the top hit)")
+
+    def test_collapse_keeps_the_boundary_it_resolved(self):
+        # The point of the feature: a resolution that used to be discarded is
+        # kept, so the second identical question reuses the doorway instead of
+        # paying for the same resolution again.
+        from path_memory import boundary
+        for i in range(3):
+            Memory.save(f"kiln note {i}",
+                        f"Detail {i} on firing stoneware in the kiln, cone 6 glaze schedules.",
+                        person=self.ENT, project="kiln", perspectives=False)
+        for i in range(5):
+            Memory.save(f"offtopic {i}",
+                        f"Notes on {['payroll','tyre pressure','hedge trimming','gutters','ferry times'][i]}.",
+                        person=self.ENT, project="kiln", perspectives=False)
+
+        q = "how hot should I fire stoneware"
+        first = recall(q, person=self.ENT, project="kiln", limit=5,
+                       collapse=True, increment_weight=False)
+        key = first[0].get("collapse_key")
+        self.assertIsNotNone(key, "a clean collapse must record the boundary it resolved")
+
+        conn = get_conn(); cur = conn.cursor()
+        try:
+            cur.execute("SELECT name, member_ids, query_count FROM collapse_keys WHERE key=%s", (key,))
+            name, member_ids, count_before = cur.fetchone()
+            self.assertEqual(sorted(member_ids), sorted(r["id"] for r in first),
+                             "the stored doorway must be exactly the set that was resolved")
+
+            # Re-resolving the same set must land on the SAME key, not mint a
+            # rival — that is what makes the usage count meaningful.
+            again = recall(q, person=self.ENT, project="kiln", limit=5,
+                           collapse=True, increment_weight=False)
+            self.assertEqual(again[0].get("collapse_key"), key,
+                             "the same resolved set must reuse its key, not create a second one")
+            cur.execute("SELECT query_count FROM collapse_keys WHERE key=%s", (key,))
+            self.assertGreater(cur.fetchone()[0], count_before,
+                               "a doorway that re-forms should record that it re-formed")
+
+            # The exact-lookup half: rows by id, no scan, no scoring.
+            rows = boundary.members(cur, member_ids)
+            self.assertEqual(len(rows), len(member_ids))
+            self.assertTrue(all("kiln" in (r["subject"] or "") for r in rows),
+                            "the doorway must yield the on-topic cluster, not the noise")
+
+            if name:
+                self.assertIsNotNone(boundary.by_name(cur, name),
+                                     "a named doorway must be reachable by its handle alone")
+            conn.commit()
+        finally:
+            cur.close(); conn.close()
 
 
 if __name__ == "__main__":

@@ -111,8 +111,13 @@ def _collapse_field(scored, limit, min_gap=0.18, min_keep=1):
         if gap > best_gap:
             best_gap, best_i = gap, i
 
-    cut = best_i if (best_i is not None and best_gap >= min_gap) else min(limit, len(scored))
-    return scored[:cut]
+    clean = best_i is not None and best_gap >= min_gap
+    cut = best_i if clean else min(limit, len(scored))
+    # Return the gap alongside the cut: it is the measure of how cleanly the
+    # field separated, and the caller needs it to decide whether this
+    # resolution is worth keeping as a named boundary. A shallow gap means it
+    # never really split into wall and air.
+    return scored[:cut], (best_gap if clean else None)
 
 
 def recall(
@@ -265,9 +270,10 @@ def recall(
 
     # Re-rank by composite score
     results.sort(key=lambda r: r["score"], reverse=True)
+    cut_gap = None
     if collapse:
         # Resolve the treacle: cut at the natural relevance cliff, keep the air.
-        results = _collapse_field(results, limit)
+        results, cut_gap = _collapse_field(results, limit)
         for r in results:
             r["serendipity"] = False
     elif creativity and creativity > 0 and len(results) > limit:
@@ -295,6 +301,17 @@ def recall(
             (real_ids,),
         )
         conn.commit()
+
+    # Keep the boundary this collapse resolved. Without this the expensive
+    # resolution is discarded and the next identical question pays for it
+    # again, and nothing in the brain records that these memories go together.
+    if collapse and cut_gap is not None:
+        from . import boundary as _boundary
+        key = _boundary.record(cur, results, query=query, cut_gap=cut_gap)
+        if key:
+            conn.commit()
+            for r in results:
+                r["collapse_key"] = key
 
     cur.close()
     conn.close()
