@@ -341,5 +341,103 @@ class TestSummaryFreshness(unittest.TestCase):
                          "the same unchanged topic must select the same members every time")
 
 
+@unittest.skipUnless(HAVE_DB, "needs a reachable engram database")
+class TestDoorwayNaming(unittest.TestCase):
+    """Naming moved off the read path and into the pass — so the pass has to
+    actually do it, or promotion (which requires a name) can never fire."""
+
+    P = "dream-test-doorway"
+
+    def setUp(self):
+        self.conn = get_conn()
+        self.cur = self.conn.cursor()
+        self._clean()
+
+    def tearDown(self):
+        self._clean()
+        self.cur.close()
+        self.conn.close()
+
+    def _clean(self):
+        self.cur.execute("DELETE FROM collapse_keys WHERE example_query LIKE 'doorway-test%'")
+        self.cur.execute("SELECT id FROM memories WHERE project = %s", (self.P,))
+        ids = [r[0] for r in self.cur.fetchall()]
+        if ids:
+            self.cur.execute("DELETE FROM memory_topics WHERE memory_id = ANY(%s)", (ids,))
+            self.cur.execute("DELETE FROM memory_projects WHERE memory_id = ANY(%s)", (ids,))
+            self.cur.execute("DELETE FROM memory_links WHERE from_id = ANY(%s) OR to_id = ANY(%s)",
+                             (ids, ids))
+            self.cur.execute("DELETE FROM memories WHERE id = ANY(%s)", (ids,))
+        self.cur.execute("DELETE FROM topics WHERE project = %s", (self.P,))
+        self.cur.execute("DELETE FROM memory_projects WHERE project = %s", (self.P,))
+        self.cur.execute("DELETE FROM project_aliases WHERE canonical = %s OR alias = %s",
+                         (self.P, self.P))
+        self.cur.execute("DELETE FROM projects WHERE slug = %s", (self.P,))
+        self.conn.commit()
+
+    def test_the_pass_names_unnamed_doorways_and_then_promotes_them(self):
+        from path_memory import boundary
+        self.cur.execute(
+            "INSERT INTO projects (slug, display_name) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+            (self.P, self.P))
+        ids = []
+        for i in range(3):
+            self.cur.execute(
+                """INSERT INTO memories (subject, body, project, origin)
+                   VALUES (%s,%s,%s,'contribution') RETURNING id""",
+                (f"doorway member {i}", f"Body {i}.", self.P))
+            ids.append(self.cur.fetchone()[0])
+        # A doorway recall recorded WITHOUT a name, re-resolved often enough to
+        # have earned one.
+        self.cur.execute(
+            """INSERT INTO collapse_keys (key, name, gist, member_ids, cut_gap,
+                                          example_query, query_count)
+               VALUES ('doorwaytestkey', NULL, NULL, %s, 0.4, 'doorway-test query', %s)""",
+            (ids, dream.PROMOTE_AT))
+        self.conn.commit()
+
+        original = boundary._name_cluster
+        boundary._name_cluster = lambda subjects, query: {"name": "doorway subject",
+                                                          "gist": "a gist"}
+        try:
+            promoted = dream.promote_doorways(self.cur, dream._Budget(4))
+        finally:
+            boundary._name_cluster = original
+        self.conn.commit()
+
+        self.cur.execute("SELECT name FROM collapse_keys WHERE key = 'doorwaytestkey'")
+        self.assertEqual(self.cur.fetchone()[0], "doorway subject",
+                         "the pass must name a doorway that has earned one")
+        self.assertTrue([p for p in promoted if p["project"] == self.P],
+                        "a named doorway that keeps re-forming must become a topic")
+
+    def test_naming_respects_the_budget(self):
+        from path_memory import boundary
+        self.cur.execute(
+            "INSERT INTO projects (slug, display_name) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+            (self.P, self.P))
+        self.cur.execute(
+            """INSERT INTO memories (subject, body, project, origin)
+               VALUES ('m','b',%s,'contribution') RETURNING id""", (self.P,))
+        mid = self.cur.fetchone()[0]
+        for n in range(4):
+            self.cur.execute(
+                """INSERT INTO collapse_keys (key, name, member_ids, cut_gap,
+                                              example_query, query_count)
+                   VALUES (%s, NULL, %s, 0.4, %s, %s)""",
+                (f"doorwaybudget{n}", [mid], f"doorway-test {n}", dream.PROMOTE_AT))
+        self.conn.commit()
+
+        calls = []
+        original = boundary._name_cluster
+        boundary._name_cluster = lambda s, q: (calls.append(1) or {"name": None, "gist": ""})
+        try:
+            dream.promote_doorways(self.cur, dream._Budget(2))
+        finally:
+            boundary._name_cluster = original
+        self.assertLessEqual(len(calls), 2,
+                             "naming must not exceed the run's model budget")
+
+
 if __name__ == "__main__":
     unittest.main()
