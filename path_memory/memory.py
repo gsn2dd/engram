@@ -1,5 +1,6 @@
 import hashlib
 import re
+import sys as _sys
 from typing import Optional, List, Dict, Any
 from .db import get_conn
 from .embed import embed_one, active_model, assert_brain_compatible
@@ -50,13 +51,37 @@ class Memory:
         temporal_anchor_start: Optional[str] = None,
         temporal_anchor_end: Optional[str] = None,
         perspectives: bool = True,
+        tier: str = 'curated',
+        contributor: Optional[str] = None,
+        source_system: Optional[str] = None,
+        session_id: Optional[str] = None,
+        exchange_id: Optional[str] = None,
+        source_uri: Optional[str] = None,
+        redact: bool = True,
+        classify: bool = False,
+        active_project: Optional[str] = None,
     ) -> int:
         """
         temporal_anchor_start/end: set these when the claim's correct tense
         depends on the calendar (e.g. "next year's Olympics") rather than on
         how long ago this row was written. See path_memory.temporal.
+
+        redact: scrub credential-shaped strings before storing. On by default
+        and at the SAVE boundary rather than at one entry point, so every write
+        path is covered — a secret only has to slip through once to be
+        replayed into every future context that recalls the memory.
+
+        classify: resolve which project(s) this memory belongs to (see
+        path_memory.classify_project). Off by default because it can cost a
+        model call; callers that already know the project just pass it.
         """
         import json
+        if redact:
+            from .redaction import scrub
+            subject, redaction_version = scrub(subject)
+            body, _ = scrub(body)
+        else:
+            redaction_version = None
         text    = f"{person or ''} — {subject}\n\n{body}"
         vec     = embed_one(text)
         model   = active_model()
@@ -70,12 +95,35 @@ class Memory:
         # Guard before the write, not after: a brain that already holds vectors
         # from a different model must not silently acquire incomparable ones.
         assert_brain_compatible(cur)
+
+        # Resolve project identity before storing, so a new spelling can never
+        # accumulate. Classification runs only when asked, and only decides
+        # what the caller did not already know.
+        from . import projects as _projects
+        project_links = []
+        if classify:
+            from .classify_project import classify as _classify
+            verdict = _classify(cur, subject, body,
+                                active_project=project or active_project)
+            project = verdict.get("primary") or project
+            project_links = verdict.get("links") or []
+        if project:
+            resolved, _created, near = _projects.ensure(cur, project)
+            if near:
+                print(f"[engram] new project {resolved!r} looks close to existing "
+                      f"{near} — check for a typo before it becomes two projects",
+                      file=_sys.stderr)
+            project = resolved
+
         cur.execute(
             """INSERT INTO memories
                    (person, subject, body, noun_type, node_type, node_key,
                     source_links, origin, embedding, embedding_model, project,
-                    expires_at, temporal_anchor_start, temporal_anchor_end)
-               VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::vector,%s,%s,%s,%s,%s)
+                    expires_at, temporal_anchor_start, temporal_anchor_end,
+                    tier, contributor, source_system, session_id, exchange_id,
+                    source_uri, redaction_version)
+               VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::vector,%s,%s,%s,%s,%s,
+                       %s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (node_key) DO UPDATE SET
                    body                   = EXCLUDED.body,
                    source_links           = EXCLUDED.source_links,
@@ -89,9 +137,18 @@ class Memory:
             (person, subject, body, noun,
              node_type if node_type in NODE_TYPES else None,
              nkey, links, origin, vec_str, model, project, expires_at,
-             temporal_anchor_start, temporal_anchor_end),
+             temporal_anchor_start, temporal_anchor_end,
+             tier, contributor, source_system, session_id, exchange_id,
+             source_uri, redaction_version),
         )
         memory_id = cur.fetchone()[0]
+
+        # One row, many links — never one row per project.
+        if project:
+            _projects.set_links(cur, memory_id, [(project, "primary", 1.0)])
+        for link in project_links:
+            _projects.set_links(cur, memory_id,
+                                [(link["project"], link["role"], link.get("confidence"))])
 
         all_entities = []
         if person:

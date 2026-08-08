@@ -44,19 +44,76 @@ CREATE TABLE IF NOT EXISTS memories (
     temporal_anchor_end   date                    -- defaults to anchor_start if unset
 );
 
--- Idempotent, so re-running this file upgrades a brain created before the
--- column existed. Fresh installs get it from the CREATE TABLE above.
+-- Everything below is idempotent, so re-running this file upgrades a brain
+-- created before these existed. Fresh installs get the columns from the
+-- CREATE TABLE above where they are declared there.
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_model text;
 
--- Browser-capture claims. The ingest endpoint claims an exchange id here BEFORE
--- doing the (slow) embed-and-save, so two concurrent posts of the same exchange
--- cannot both proceed. A pre-flight SELECT cannot do this: the second request
--- arrives while the first is still embedding and sees nothing.
-CREATE TABLE IF NOT EXISTS captures (
-    exchange_id text PRIMARY KEY,
-    memory_id   integer,
-    created_at  timestamptz DEFAULT now()
+-- PROVENANCE. Where a memory came from, and whether it has been cleaned. An
+-- engine that only records what a memory says cannot answer "who told us
+-- this, in which session, and has it been redacted?" — which is the difference
+-- between a brain that fills up by itself and one a human has to hand-feed.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS tier text DEFAULT 'curated';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS contributor       text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS source_system     text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS session_id        text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS source_uri        text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS content_hash      text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS redaction_version text;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS metadata_json     jsonb;
+
+-- Ingest idempotency. The extension re-posts on retry and rescans pages, so
+-- the same exchange genuinely arrives twice. A unique index makes the DATABASE
+-- refuse the duplicate: a pre-flight SELECT loses that race every time,
+-- because the retry arrives while the first request is still embedding and
+-- sees nothing committed. Measured, not theorised — the first version of the
+-- ingest endpoint stored a duplicate on exactly that path.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS exchange_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS memories_exchange_uniq
+    ON memories(exchange_id) WHERE exchange_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS memories_tier_idx ON memories(tier);
+
+-- PROJECT IDENTITY. `project` was free text, so the same project accumulated
+-- several spellings and every scoped recall silently returned half the corpus.
+-- The registry is only sound if all three halves exist: normalise on write,
+-- normalise on read, and backfill once. Any one alone leaks.
+CREATE TABLE IF NOT EXISTS projects (
+    slug         text PRIMARY KEY,
+    display_name text,
+    notes        text,
+    created_at   timestamptz DEFAULT now()
 );
+
+-- Aliases are kept forever rather than deleted: old notes, scripts and human
+-- habit keep using them, and a resolvable alias beats a miss.
+CREATE TABLE IF NOT EXISTS project_aliases (
+    alias      text PRIMARY KEY,
+    canonical  text NOT NULL REFERENCES projects(slug) ON UPDATE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+-- A memory may concern several projects. It is NEVER duplicated to achieve
+-- that: three copies would carry three separate access_counts, weights and
+-- edge sets, so retrieval evidence splits three ways and none of them ever
+-- gets strong — attacking the exact mechanism this engine runs on. One row,
+-- many links. If a CLAIM differs per project, those were always two memories.
+CREATE TABLE IF NOT EXISTS memory_projects (
+    memory_id  integer NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    project    text    NOT NULL REFERENCES projects(slug) ON UPDATE CASCADE,
+    -- primary    : what it is ABOUT (mirrors memories.project, the fast path)
+    -- origin     : what we were working on when it was found
+    -- applies-to : another project the finding governs
+    -- mentions   : named, but not governed by it
+    role       text NOT NULL DEFAULT 'primary'
+               CHECK (role IN ('primary','origin','applies-to','mentions')),
+    confidence real,
+    created_at timestamptz DEFAULT now(),
+    PRIMARY KEY (memory_id, project)
+);
+
+CREATE INDEX IF NOT EXISTS memory_projects_project_role_idx
+    ON memory_projects(project, role);
 
 ALTER TABLE memories ADD CONSTRAINT memories_node_key_uniq UNIQUE (node_key);
 CREATE INDEX IF NOT EXISTS memories_node_type_idx ON memories(node_type) WHERE node_type IS NOT NULL;
