@@ -64,44 +64,29 @@ def scrub(text: str) -> str:
     return text
 
 
-def claim_exchange(exchange_id: str) -> bool:
+def already_captured(exchange_id: str) -> bool:
     """
-    Atomically claim an exchange. True = it is ours to store; False = someone
-    already has it.
+    Has this exchange been stored before?
 
-    This must be a claim, not a lookup. The extension re-posts on retry and
-    rescans pages, so the same exchange genuinely arrives twice — and a
-    pre-flight SELECT loses that race every time, because the second request
-    arrives while the first is still embedding and therefore sees nothing
-    committed. Measured, not theorised: the first version of this file stored
-    a duplicate on exactly that path.
+    A cheap pre-check only — NOT the idempotency guarantee. Two concurrent posts
+    of the same exchange both pass this, because the first is still embedding and
+    has committed nothing. The real guarantee is the unique index on
+    memories.exchange_id, which the database enforces regardless of timing; the
+    loser surfaces as a UniqueViolation in store_exchange.
+
+    This was a claim row in a separate `captures` table. That table was dropped
+    when exchange_id moved onto memories, and these functions were left writing
+    to it — so every capture returned 500 on any brain built from the current
+    schema. The endpoint had only ever been exercised against a database where
+    the table was created by hand, which is why the tests stayed green.
     """
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO captures (exchange_id) VALUES (%s) "
-            "ON CONFLICT (exchange_id) DO NOTHING RETURNING exchange_id",
-            (exchange_id,),
-        )
-        claimed = cur.fetchone() is not None
-        conn.commit()
-        return claimed
+        cur.execute("SELECT 1 FROM memories WHERE exchange_id = %s LIMIT 1", (exchange_id,))
+        return cur.fetchone() is not None
     finally:
         conn.close()
-
-
-def release_claim(exchange_id: str) -> None:
-    """Give the id back after a failed save, so the extension's retry can win it."""
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM captures WHERE exchange_id = %s", (exchange_id,))
-        conn.commit()
-        conn.close()
-    except Exception as exc:
-        print(f"[ingest] could not release claim {exchange_id}: {exc}",
-              file=sys.stderr, flush=True)
 
 
 def store_exchange(exchange_id, subject, body, contributor, url, title):
@@ -120,19 +105,27 @@ def store_exchange(exchange_id, subject, body, contributor, url, title):
             person=contributor,
             origin="discovery",
             project=PROJECT,
+            # transcript tier keeps bulk captures out of the perspective fan-out
+            # and the path graph: they arrive in their hundreds and would
+            # otherwise cost three model calls each and skew association weights.
+            tier="transcript",
+            source_system="browser-capture",
+            source_uri=url,
+            exchange_id=exchange_id,
             source_links=[{"url": url, "title": title, "exchange_id": exchange_id}],
         )
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("UPDATE captures SET memory_id = %s WHERE exchange_id = %s",
-                    (memory_id, exchange_id))
-        conn.commit()
-        conn.close()
         print(f"[ingest] stored exchange {exchange_id} as memory {memory_id}",
               file=sys.stderr, flush=True)
     except Exception as exc:
-        print(f"[ingest] save failed for {exchange_id}: {exc}", file=sys.stderr, flush=True)
-        release_claim(exchange_id)
+        # Losing the unique-index race is the expected outcome of a retry, not a
+        # failure. Memory.save's ON CONFLICT covers node_key only, so a duplicate
+        # exchange_id is raised rather than absorbed.
+        if exc.__class__.__name__ == "UniqueViolation" or "exchange_uniq" in str(exc):
+            print(f"[ingest] exchange {exchange_id} already captured (concurrent retry)",
+                  file=sys.stderr, flush=True)
+        else:
+            print(f"[ingest] save failed for {exchange_id}: {exc}",
+                  file=sys.stderr, flush=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -205,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
             exchange_id = hashlib.sha256(f"{url}|{prompt}|{answer}".encode()).hexdigest()[:32]
 
         try:
-            if not claim_exchange(exchange_id):
+            if already_captured(exchange_id):
                 self._reply(200, {"ok": True, "stored": False, "note": "already captured"})
                 return
 

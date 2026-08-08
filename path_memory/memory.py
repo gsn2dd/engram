@@ -177,11 +177,32 @@ class Memory:
             perspectives = False
         if perspectives:
             from .perspectives import store_perspectives
+            # SAVEPOINT, not a bare try/except. A swallowed SQL error does not
+            # just skip the lenses — it puts the whole transaction into an
+            # aborted state, and Postgres then executes COMMIT as ROLLBACK
+            # without raising. The memory, its project registration and its
+            # links all vanish while save() returns the id it got from
+            # RETURNING before the abort, so every caller records success for a
+            # row that no longer exists. Reproduced: insert, swallow an
+            # UndefinedTable, commit -> 0 rows, no exception anywhere.
+            cur.execute("SAVEPOINT lenses")
             try:
                 store_perspectives(cur, memory_id, person, subject, body)
-            except Exception:
-                pass
+                cur.execute("RELEASE SAVEPOINT lenses")
+            except Exception as exc:
+                cur.execute("ROLLBACK TO SAVEPOINT lenses")
+                print(f"[engram] perspective lenses skipped for {memory_id}: {exc}",
+                      file=_sys.stderr)
 
+        # Belt and braces: never report a save that the database is about to
+        # throw away. If anything else poisoned the transaction, fail loudly
+        # rather than returning an id for data that will not exist.
+        import psycopg2.extensions as _pgext
+        if conn.get_transaction_status() == _pgext.TRANSACTION_STATUS_INERROR:
+            conn.rollback()
+            raise RuntimeError(
+                f"save aborted: transaction was in an error state before commit "
+                f"(memory {memory_id!r} was NOT stored)")
         conn.commit()
         cur.close()
         conn.close()

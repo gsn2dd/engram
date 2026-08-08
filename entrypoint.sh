@@ -1,12 +1,27 @@
 #!/bin/bash
 # Engram: Postgres+pgvector holds the brain; the MCP server exposes it so any
 # MCP-capable agent (OpenClaw, Claude Desktop, ...) can attach to it as memory.
-# First boot applies schema.sql via /docker-entrypoint-initdb.d/.
+# schema.sql is applied on EVERY start, not only at initdb.
 set -e
 docker-entrypoint.sh postgres &
 PG_PID=$!
 echo "Waiting for Postgres..."
 until pg_isready -h localhost -U "${POSTGRES_USER}" >/dev/null 2>&1; do sleep 1; done
+
+# Apply the schema on every start. /docker-entrypoint-initdb.d only runs when
+# PGDATA is EMPTY, so on the AMI — where the data directory is a persistent bind
+# mount — pulling a newer image and restarting never migrated anything. The
+# container came up against an old schema and every write failed on a missing
+# column, while schema.sql's own comments promised that re-running it upgrades an
+# existing brain. Nothing was running it. Safe to repeat: every statement is
+# guarded with IF NOT EXISTS or a duplicate-object catch.
+echo "Applying schema (idempotent)..."
+if ! psql -v ON_ERROR_STOP=1 -h localhost -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+        -q -f /app/schema.sql; then
+    echo "FATAL: schema could not be applied; refusing to start against an" >&2
+    echo "       unmigrated database rather than failing every write later." >&2
+    exit 1
+fi
 echo "Postgres ready. Starting Engram MCP server on :${ENGRAM_MCP_PORT:-8080}/sse"
 export DB_NAME="${POSTGRES_DB}" DB_USER="${POSTGRES_USER}" DB_PASS="${POSTGRES_PASSWORD}" DB_HOST=localhost
 python3 mcp_server.py &
