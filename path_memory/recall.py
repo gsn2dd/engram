@@ -23,12 +23,30 @@ RECENCY_HALF_LIFE_DAYS = 30   # weight halves every 30 days of non-use
 # use-history alone (multiplier 0.1 unused vs 1.0 used). Relevance never stood a
 # chance.
 #
-# Use-history is now a BOUNDED bonus on top of relevance: a fully-warmed memory
-# is worth at most ~1.5x its cosine. Anything more relevant than that still
-# wins, so popularity can no longer answer a question it is not about — while
-# within a band of comparable relevance the proven-useful memory still leads,
-# which is the entire point of a use-built graph.
-USE_BONUS = 0.5
+# Use-history is a BOUNDED bonus on top of relevance rather than a peer of it,
+# so popularity cannot answer a question it is not about — while within a band
+# of comparable relevance the proven-useful memory still leads, which is the
+# entire point of a use-built graph.
+#
+# 0.5 WAS TOO LARGE, AND THAT WAS MEASURED, NOT ARGUED (2026-08-16). The first
+# bench of this engine against non-circular ground truth — 140 wikilink-labelled
+# cases on a 4,113-memory brain, see path_memory/bench.py — scored the shipped
+# ranking BELOW plain cosine similarity:
+#
+#     held-out half (n=73)        hit@5     MRR
+#     cosine only                 0.479    0.308
+#     shipped (0.5, max-norm)     0.315    0.241     <- worse than no use-history
+#     this setting (0.1, rank)    0.493    0.344
+#
+# A 0.5 bonus lets a well-used memory outrank a materially more relevant one, and
+# on a real corpus that happens far more often than the cases it rescues. At 0.1
+# combined with rank normalisation (below) the term does what it was designed to
+# do: it is worth +54% MRR on the *hard* pairs — the ones cosine cannot find —
+# while no longer costing anything on the easy ones.
+#
+# Both numbers are fitted to ONE corpus and one embedding model, like every other
+# threshold in this engine. Re-run the bench before trusting them on another.
+USE_BONUS = 0.1
 
 # Calendar time is a soft ranking signal, not just a display label. A
 # "current" anchored memory (the event is happening now) gets a small
@@ -48,6 +66,99 @@ TEMPORAL_FACTOR = {
 # The row stays fully recallable (by id, or if it's the only match) in case the
 # replacement dropped a detail that's still needed.
 SUPERSEDED_FACTOR = 0.4
+
+# The ranking terms, gathered in one place so a caller can turn them off
+# WITHOUT forking recall(). This exists for the bench (docs/RECALL_MEASUREMENT.md):
+# a policy ladder has to be able to ask "what does recall score if use-history
+# contributes nothing?" and compare that to today's behaviour on the same corpus,
+# same query and same embedding. Every default here is exactly the shipped
+# behaviour, so `policy=None` and an unmodified DEFAULT_POLICY are the same run.
+#
+# It is deliberately NOT a general tuning surface. Nothing in the engine writes
+# to it, no environment variable sets it, and the only caller that passes one is
+# the bench. Ranking that varies per call site is ranking nobody can reason about.
+DEFAULT_POLICY = {
+    "use_bonus":    USE_BONUS,     # 0 disables use-history entirely
+    "w_weight":     W_WEIGHT,
+    "w_recency":    W_RECENCY,
+    "weight_norm":  "rank",        # max | log | rank -- see _normalise_weights
+    "temporal":     True,          # apply TEMPORAL_FACTOR
+    "superseded":   True,          # apply SUPERSEDED_FACTOR
+    "perspectives": True,          # merge the fan-out lens hits
+    "level_pick":   True,          # summary-vs-members level picking
+}
+
+
+def _policy(overrides):
+    """Today's behaviour, with any named term overridden. Unknown keys raise:
+    a silently-ignored policy key would make a bench rung measure the default
+    while reporting that it measured something else — the one failure mode that
+    would make every number here untrustworthy."""
+    if not overrides:
+        return dict(DEFAULT_POLICY)
+    unknown = set(overrides) - set(DEFAULT_POLICY)
+    if unknown:
+        raise ValueError(f"unknown policy keys: {sorted(unknown)}")
+    merged = dict(DEFAULT_POLICY)
+    merged.update(overrides)
+    return merged
+
+
+def _normalise_weights(weights, mode="max"):
+    """Map raw accumulated weights onto [0,1] for the use-history bonus.
+
+    The shape matters more than the coefficient, because accumulated weight is
+    heavy-tailed. Measured on a real 4,113-memory brain: mean 0.19, max 5.83,
+    and only 15% of memories carry any weight at all.
+
+      "max"  — weight / pool_max. The ORIGINAL behaviour, replaced 2026-08-16.
+               On that distribution a handful of memories sit 25x above the
+               mean, so dividing by the maximum hands them nearly the whole
+               bonus and rounds everyone else to a rounding error. The bonus
+               stopped being "proven-useful memories rank slightly higher" and
+               became "these six memories are promoted into every result set
+               regardless of the question" — the same popularity-beats-relevance
+               failure the bounded multiplier was introduced to fix, surviving
+               at a smaller amplitude because only the coefficient had changed
+               and not the shape.
+      "log"  — log1p(weight) / log1p(pool_max). Compresses the tail, so the
+               difference between a well-used memory and a famous one stops
+               swamping the difference between unused and used.
+      "rank" — percentile position within the pool. THE DEFAULT. Fully
+               outlier-immune: it only knows the ORDER of use, which is the
+               actual claim being made ("this one has proven more useful than
+               that one"), not the magnitude, which nothing in the design ever
+               gave a meaning to. Measured as the only one of the three that
+               improves the hard cases without paying for it on the easy ones
+               (bench figures in the USE_BONUS comment above).
+
+    Returns a list aligned to `weights`.
+    """
+    if not weights:
+        return []
+    if mode == "rank":
+        order = sorted(range(len(weights)), key=lambda i: weights[i])
+        out = [0.0] * len(weights)
+        denom = max(len(weights) - 1, 1)
+        # Ties must share a value, or an arbitrary sort order among the 85% of
+        # memories with weight 0 would invent a use-ranking out of nothing.
+        i = 0
+        while i < len(order):
+            j = i
+            while j + 1 < len(order) and weights[order[j + 1]] == weights[order[i]]:
+                j += 1
+            share = ((i + j) / 2.0) / denom
+            for k in range(i, j + 1):
+                out[order[k]] = share
+            i = j + 1
+        return out
+
+    hi = max(weights) or 1.0
+    if mode == "log":
+        import math
+        denom = math.log1p(hi) or 1.0
+        return [math.log1p(w) / denom for w in weights]
+    return [w / hi for w in weights]
 
 
 def _recency_score(last_accessed) -> float:
@@ -179,6 +290,7 @@ def recall(
     increment_weight: bool = True,
     creativity: float = 0.0,
     collapse: bool = False,
+    policy: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Semantic recall with a composite ranking:
@@ -201,6 +313,10 @@ def recall(
     own summaries, i.e. the compressed form of the corpus was the one thing
     recall could never see.
 
+    policy: override individual ranking terms (see DEFAULT_POLICY). Intended for
+    the measurement bench, which needs to score the same query under
+    cosine-only, +use-history, +temporal and so on. None means shipped behaviour.
+
     collapse: when True, don't blindly return a fixed top-`limit`. Resolve the
     relevance field into keep ('air') vs drop ('wall') by finding the natural
     cliff in the composite scores, and return only the air — so a query with
@@ -208,6 +324,7 @@ def recall(
     an upper bound, not a quota. Mutually exclusive with creativity (collapse
     wins); both at once makes no sense — one trims treacle, the other adds it.
     """
+    pol     = _policy(policy)
     vec     = embed_one(query)
     vec_str = "[" + ",".join(str(x) for x in vec) + "]"
 
@@ -281,30 +398,31 @@ def recall(
     # (thematic / questions / vantages) even when its literal embedding doesn't.
     # Merge perspective hits in, keeping the best cosine per memory. Fully
     # guarded with a rollback so it can never poison core recall.
-    try:
-        cur.execute(
-            f"""SELECT m.id, m.person, m.subject, m.body, m.noun_type, m.node_type, m.node_key,
-                       m.source_links, m.origin,
-                       1 - (mp.embedding <=> '{vec_str}'::vector) AS cosine,
-                       m.weight, m.access_count, m.success_count, m.fail_count,
-                       m.last_accessed, m.created_at,
-                       m.temporal_anchor_start, m.temporal_anchor_end, m.superseded_by,
-                       m.derived_from
-                FROM memory_perspectives mp JOIN memories m ON m.id = mp.memory_id
-                WHERE {p_where}
-                ORDER BY mp.embedding <=> '{vec_str}'::vector
-                LIMIT %s""",
-            p_params,
-        )
-        for pr in cur.fetchall():
-            mid = pr[0]
-            if mid in by_id:
-                if pr[9] > by_id[mid][9]:        # boost to the better lens cosine
-                    by_id[mid][9] = pr[9]
-            else:
-                by_id[mid] = list(pr)
-    except Exception:
-        conn.rollback()
+    if pol["perspectives"]:
+        try:
+            cur.execute(
+                f"""SELECT m.id, m.person, m.subject, m.body, m.noun_type, m.node_type, m.node_key,
+                           m.source_links, m.origin,
+                           1 - (mp.embedding <=> '{vec_str}'::vector) AS cosine,
+                           m.weight, m.access_count, m.success_count, m.fail_count,
+                           m.last_accessed, m.created_at,
+                           m.temporal_anchor_start, m.temporal_anchor_end, m.superseded_by,
+                           m.derived_from
+                    FROM memory_perspectives mp JOIN memories m ON m.id = mp.memory_id
+                    WHERE {p_where}
+                    ORDER BY mp.embedding <=> '{vec_str}'::vector
+                    LIMIT %s""",
+                p_params,
+            )
+            for pr in cur.fetchall():
+                mid = pr[0]
+                if mid in by_id:
+                    if pr[9] > by_id[mid][9]:    # boost to the better lens cosine
+                        by_id[mid][9] = pr[9]
+                else:
+                    by_id[mid] = list(pr)
+        except Exception:
+            conn.rollback()
 
     rows = list(by_id.values())
 
@@ -315,16 +433,20 @@ def recall(
     # makes a uniformly-cold pool contribute nothing (cosine decides, which is
     # correct when there is no use-history to consult) while preserving the
     # relative ordering that makes a warm brain good.
-    _max_weight = max((float(r[10]) for r in rows), default=0.0) or 1.0
+    _norm_weights = _normalise_weights([float(r[10]) for r in rows],
+                                       pol["weight_norm"])
 
     results = []
-    for row in rows:
+    for idx, row in enumerate(rows):
         cosine  = float(row[9])
         weight  = float(row[10])
+        n_weight = _norm_weights[idx]
         recency = _recency_score(row[14])
         status  = temporal_status(row[16], row[17])
-        factor  = TEMPORAL_FACTOR.get(status, 1.0)
-        if row[18] is not None:                  # superseded -> ranks below its replacement
+        # The status is always DERIVED (it is a display hint and a bench rung
+        # reads it); only its effect on the score is switchable.
+        factor  = TEMPORAL_FACTOR.get(status, 1.0) if pol["temporal"] else 1.0
+        if row[18] is not None and pol["superseded"]:   # superseded -> below its replacement
             factor *= SUPERSEDED_FACTOR
         # Relevance GATES use-history rather than competing with it.
         #
@@ -338,8 +460,9 @@ def recall(
         # match, a proven-useful one still outranks a fresher-but-unused one,
         # which is the whole point of a use-built graph — while making it
         # impossible for use-history to rescue something the query is not about.
-        score   = cosine * (1.0 + USE_BONUS * (W_WEIGHT * (weight / _max_weight)
-                                               + W_RECENCY * recency)) * factor
+        score   = cosine * (1.0 + pol["use_bonus"]
+                            * (pol["w_weight"] * n_weight
+                               + pol["w_recency"] * recency)) * factor
 
         results.append({
             "id":            row[0],
@@ -382,7 +505,7 @@ def recall(
     covered: set = set()
     kept_ids: set = set()
     levelled = []
-    for r in results:
+    for r in (results if pol["level_pick"] else ()):
         if r["id"] in covered:
             continue
         members = r.get("derived_from")
@@ -396,7 +519,8 @@ def recall(
             covered.update(members)
         kept_ids.add(r["id"])
         levelled.append(r)
-    results = levelled
+    if pol["level_pick"]:
+        results = levelled
     cut_gap = None
     if collapse:
         # Resolve the treacle: cut at the natural relevance cliff, keep the air.
@@ -414,9 +538,19 @@ def recall(
     # consecutive pair of GENUINE hits. Creative near-misses are sparks, not
     # retrievals: they neither form edges nor get strengthened, so creativity can
     # never distort the use-built graph.
+    #
+    # increment_weight=False gates the EDGES as well as the node weights. It did
+    # not until 2026-08-16, which made the flag a half-truth: a caller asking for
+    # a read-only recall still laid down permanent edges in the association
+    # graph. Two callers relied on the promise it was not keeping — mindspace's
+    # transcript search, which is documented as read-only precisely so the raw
+    # archive cannot distort the use-built graph, and the measurement bench,
+    # which cannot score a graph that every scoring run alters. An observation
+    # that changes what it observes is not a read.
     real_ids = [r["id"] for r in results if not r.get("serendipity")]
-    for a, b in zip(real_ids, real_ids[1:]):
-        record_traversal(conn, a, b)
+    if increment_weight:
+        for a, b in zip(real_ids, real_ids[1:]):
+            record_traversal(conn, a, b)
 
     if increment_weight and real_ids:
         cur.execute(
