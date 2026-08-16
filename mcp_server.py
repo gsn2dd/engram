@@ -78,9 +78,37 @@ def recall(query: str, person: str = "", project: str = "", limit: int = 5,
     with weak matches. Use it when you want a clean answer set, not a top-N list."""
     rows = _recall(query, person=person or None, project=project or None,
                    limit=limit, creativity=creativity, collapse=collapse)
-    return [{"id": r["id"], "subject": r["subject"], "body": r["body"],
-             "person": r["person"], "score": r["score"],
-             "serendipity": r.get("serendipity", False)} for r in rows]
+    # Log what was SHOWN so that what was USED can be attributed later. Never
+    # raises — an analytics write must not be able to break a recall.
+    from path_memory import events as _events
+    event_id = _events.record(query, rows, project=project or None, source="mcp")
+    out = [{"id": r["id"], "subject": r["subject"], "body": r["body"],
+            "person": r["person"], "score": r["score"],
+            "serendipity": r.get("serendipity", False)} for r in rows]
+    if event_id and out:
+        # Carried on the first row rather than wrapping the whole response in an
+        # envelope, which would change the tool's shape for every existing
+        # caller in order to serve an optional follow-up call.
+        out[0]["event_id"] = event_id
+    return out
+
+
+@mcp.tool()
+def mark_used(event_id: int, used_ids: list) -> dict:
+    """Report which recalled memories ACTUALLY helped you answer.
+
+    Call this after you have used a recall's results. Pass the `event_id` from
+    that recall and the ids that genuinely informed your answer — not everything
+    you were shown.
+
+    Why it matters: recall strengthens whatever it returns, so without this the
+    brain learns what its own ranker likes rather than what turned out to be
+    worth having. Reporting an EMPTY list is useful and honest — it records that
+    the recall did not help, which is the one outcome nothing else can detect."""
+    from path_memory import events as _events
+    ok = _events.mark_used(int(event_id), [int(i) for i in (used_ids or [])])
+    return {"ok": ok, "event_id": int(event_id),
+            "used": sorted({int(i) for i in (used_ids or [])})}
 
 
 @mcp.tool()

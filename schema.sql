@@ -149,6 +149,48 @@ CREATE INDEX IF NOT EXISTS collapse_keys_name_idx ON collapse_keys(name);
 CREATE INDEX IF NOT EXISTS collapse_keys_centroid_idx
     ON collapse_keys USING hnsw (centroid vector_cosine_ops);
 
+-- RECALL EVENTS — the difference between what was SHOWN and what was USED.
+--
+-- Until 2026-08-16 this engine could not tell those apart, and it strengthened
+-- on the wrong one. Every recall bumped weight and laid down edges for every
+-- result returned, so the use-built graph was learning WHAT GOT SHOWN. Paired
+-- with an always-on prompt-time recall hook that is a self-confirming loop:
+-- whatever the ranker surfaces gets strengthened, which makes the ranker
+-- surface it again.
+--
+-- The distinction is not academic. Hand a model the provably correct memory and
+-- it still may ignore it, misread it, or be confused by it — so "this was
+-- returned" is evidence about the RANKER, while "this was used" is evidence
+-- about the MEMORY. Only the second is worth learning from.
+--
+-- One row per recall. `shown` is written at recall time; `used` is filled in
+-- afterwards, by whatever can actually tell — an agent reporting explicitly, or
+-- an offline pass reading the conversation that followed. Attribution is
+-- therefore allowed to be LATE and allowed to be ABSENT: a NULL `used` means
+-- nobody has judged this event yet, which is different from an empty array
+-- meaning nothing shown was used.
+CREATE TABLE IF NOT EXISTS recall_events (
+    id            bigserial PRIMARY KEY,
+    created_at    timestamptz DEFAULT now(),
+    query         text,
+    project       text,
+    session_id    text,                    -- groups events within one conversation
+    source        text,                    -- hook | mcp | cli | bench | ...
+    -- [{"id":123,"rank":1,"score":0.71}, ...] — rank and score are kept because
+    -- "the answer was there but ranked 9th" is a different failure from "it was
+    -- never returned", and the two need different fixes.
+    shown         jsonb NOT NULL,
+    used          jsonb,                   -- [123, ...]; NULL = not yet judged
+    attributed_at timestamptz,
+    attribution   text                     -- explicit | citation | model | ...
+);
+CREATE INDEX IF NOT EXISTS recall_events_created_idx ON recall_events(created_at);
+CREATE INDEX IF NOT EXISTS recall_events_session_idx ON recall_events(session_id);
+-- The attributor's work queue: events nobody has judged yet.
+CREATE INDEX IF NOT EXISTS recall_events_unattributed_idx
+    ON recall_events(created_at) WHERE used IS NULL;
+
+
 -- TOPICS — sub-classification inside a project.
 --
 -- `project` answers "which body of work"; a topic answers "which THING inside

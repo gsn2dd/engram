@@ -125,14 +125,22 @@ fp = sub.add_parser("forget-project"); fp.add_argument("project"); fp.add_argume
 dm = sub.add_parser("demo"); dm.add_argument("--verify", action="store_true")
 dr = sub.add_parser("dream"); dr.add_argument("--project"); dr.add_argument("--budget", type=int, default=12)
 bn = sub.add_parser("bench"); bn.add_argument("--health", action="store_true")
+bn.add_argument("--use-signal", dest="use_signal", action="store_true")
 bn.add_argument("--limit", type=int, default=10)
 
 
 def cmd_bench(a):
     """--health is the cheap daily canary (no labels, exits non-zero on FAIL);
-    bare `pm bench` runs the full policy ladder, which needs a brain with
-    [[id]] wikilinks between memories to score against."""
+    --use-signal reports whether enough use has been attributed to judge the
+    use-signal rung; bare `pm bench` runs the full policy ladder, which needs a
+    brain with [[id]] wikilinks between memories to score against."""
     from path_memory import bench
+    if getattr(a, "use_signal", False):
+        r = bench.use_signal_readiness()
+        print(f"[use-signal] events={r['events']} attributed={r['attributed']} "
+              f"(of which judged-useless={r['attributed_empty']}) "
+              f"use_marks={r['memory_use_marks']}\n  {r['verdict']}")
+        return
     if a.health:
         r = bench.health_probe()
         print(f"[health] n={r['n']} hit@5={r['hit@5']:.2f} hit@10={r['hit@10']:.2f} "

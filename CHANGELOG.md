@@ -11,6 +11,24 @@ because of use — was scored for the first time, against ground truth the ranke
 did not generate. It was failing.
 
 ### Added
+- **Recall events — shown is not used** (`recall_events`, `path_memory/events.py`).
+  Recall strengthened everything it returned, so the association graph was
+  learning what the ranker likes rather than what turned out to be worth having
+  — and with an always-on recall hook, that is a closed loop. Every recall now
+  logs what it showed (with ranks and scores); what was *used* is attributed
+  afterwards, by an agent reporting it (`mark_used` MCP tool) or by an offline
+  rule reading what followed. `NULL` used means "not yet judged" and is
+  deliberately distinct from `[]`, "judged, and nothing shown helped" — the one
+  outcome nothing else can detect, a recall that fails while looking like it
+  worked. `Memory.used()` is the reinforcement path; `Memory.success()` remains
+  as its WorldTownGuide-lineage alias.
+- **`success_bonus` ranking term — built, wired, and OFF (0.0).** It stays off
+  until the bench says it earns its place. That restraint is the direct lesson
+  of `USE_BONUS`, which was shipped at 0.5 on reasoning alone and spent months
+  making recall worse than no ranking at all. Capture runs from day one so data
+  accrues; `pm bench --use-signal` reports when there is enough to answer, and
+  the `+use-signal` rung answers it. The term saturates rather than scaling
+  linearly — the signal is "has this ever helped", not "how many times".
 - **The recall bench** (`path_memory/bench.py`) — a policy ladder that fixes the
   corpus, query and embedding and varies exactly one thing: the ranking policy.
   Ground truth comes from `[[id]]` wikilinks between memories, the only

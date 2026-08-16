@@ -82,6 +82,18 @@ DEFAULT_POLICY = {
     "w_weight":     W_WEIGHT,
     "w_recency":    W_RECENCY,
     "weight_norm":  "rank",        # max | log | rank -- see _normalise_weights
+    # Use-signal ranking: how much a memory judged ACTUALLY USEFUL outranks one
+    # that was merely returned. DEFAULT 0 — the term is built, wired and
+    # measurable, and stays switched off until the bench says it earns its place.
+    #
+    # That restraint is the direct lesson of USE_BONUS above: a ranking term was
+    # shipped at 0.5 on reasoning alone and spent months making recall worse
+    # than no ranking at all. The capture side (path_memory/events.py) runs from
+    # day one so the data accrues; `pm bench --use-signal` reports when there is
+    # enough of it to answer the question, and the `+use-signal` rung answers it.
+    # Turning this on before then would repeat the exact mistake, in the exact
+    # same file.
+    "success_bonus": 0.0,
     "temporal":     True,          # apply TEMPORAL_FACTOR
     "superseded":   True,          # apply SUPERSEDED_FACTOR
     "perspectives": True,          # merge the fan-out lens hits
@@ -463,6 +475,18 @@ def recall(
         score   = cosine * (1.0 + pol["use_bonus"]
                             * (pol["w_weight"] * n_weight
                                + pol["w_recency"] * recency)) * factor
+
+        # Proven-useful outranks merely-returned. Saturating rather than linear:
+        # the difference between "never helped" and "helped once" is the whole
+        # signal; the difference between nine times and ten is noise, and a
+        # linear term would let a single well-worn memory dominate every query
+        # exactly as raw weight did.
+        if pol["success_bonus"]:
+            uses = float(row[12] or 0)
+            fails = float(row[13] or 0)
+            net = uses - fails
+            if net > 0:
+                score *= 1.0 + pol["success_bonus"] * (net / (net + 2.0))
 
         results.append({
             "id":            row[0],

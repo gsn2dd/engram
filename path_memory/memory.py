@@ -246,8 +246,21 @@ class Memory:
         }
 
     @staticmethod
-    def success(memory_ids: List[int]) -> None:
-        """Call after successful page publish for every node included in the output."""
+    def used(memory_ids: List[int]) -> None:
+        """This memory did not merely get RETURNED — it actually helped.
+
+        The distinction is the whole point. recall() strengthens everything it
+        shows, which teaches the graph what the ranker likes rather than what
+        turned out to be worth having. This is the other signal, and it is the
+        one that should eventually carry the weight: see path_memory/events.py.
+
+        Deliberately shares the diminishing-returns shape used by exposure
+        (1/(access_count+2)) rather than inventing a second curve, so the two
+        signals stay comparable when the bench comes to weigh them against each
+        other. What differs is the COUNTER — success_count is only ever
+        incremented by something that judged the memory useful, so it stays a
+        clean signal even while `weight` mixes both.
+        """
         if not memory_ids:
             return
         conn = get_conn()
@@ -262,6 +275,16 @@ class Memory:
         conn.commit()
         cur.close()
         conn.close()
+
+    @staticmethod
+    def success(memory_ids: List[int]) -> None:
+        """Alias for `used`, kept for the WorldTownGuide lineage.
+
+        This method predates the agent-memory use case: it meant "a page
+        published successfully with these nodes in it". That is one instance of
+        the general signal, so it delegates rather than duplicating.
+        """
+        Memory.used(memory_ids)
 
     @staticmethod
     def fail(memory_ids: List[int]) -> None:

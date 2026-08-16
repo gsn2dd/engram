@@ -79,6 +79,12 @@ LADDER: List[Tuple[str, Dict]] = [
     ("+temporal",     {"superseded": False, "level_pick": False}),
     ("+supersede",    {"level_pick": False}),
     ("shipped",       {}),
+    # Answers "does learning from USE beat learning from EXPOSURE?" — the
+    # question path_memory/events.py exists to make answerable. It will report
+    # no difference until attributed events accumulate, which is not a bug and
+    # is why `use_signal_readiness()` exists to say so out loud rather than
+    # letting a flat line be read as a verdict.
+    ("+use-signal",   {"success_bonus": 0.3}),
 ]
 
 
@@ -320,7 +326,37 @@ def health_probe(sample_size: int = 20, topk: int = 10, seed_sql: str = "") -> D
     }
 
 
+def use_signal_readiness() -> Dict:
+    """Report whether the use-signal question can be answered yet, and say so
+    plainly when it cannot.
+
+    A bench rung that silently reports "no difference" because it has no data
+    looks identical to one reporting "no difference" because the idea does not
+    work. Distinguishing those two is the entire job of this function.
+    """
+    from . import events
+    r = events.readiness()
+    if r["ready"]:
+        verdict = ("READY — run the ladder and read the +use-signal rung; "
+                   "if it wins, raise success_bonus off 0 in DEFAULT_POLICY")
+    elif r["events"] == 0:
+        verdict = ("NO CAPTURE — nothing is calling events.record(). The rung "
+                   "cannot mean anything until something does.")
+    else:
+        verdict = (f"CAPTURING — {r['attributed']}/{r['ready_at']} attributed. "
+                   f"The +use-signal rung is not interpretable yet.")
+    r["verdict"] = verdict
+    return r
+
+
 if __name__ == "__main__":
+    if "--use-signal" in sys.argv:
+        r = use_signal_readiness()
+        print(f"[use-signal] events={r['events']} attributed={r['attributed']} "
+              f"(of which judged-useless={r['attributed_empty']}) "
+              f"use_marks={r['memory_use_marks']}\n  {r['verdict']}")
+        sys.exit(0)
+
     if "--health" in sys.argv:
         r = health_probe()
         print(f"[health] n={r['n']} hit@5={r['hit@5']:.2f} hit@10={r['hit@10']:.2f} "
