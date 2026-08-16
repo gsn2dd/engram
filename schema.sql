@@ -191,6 +191,37 @@ CREATE INDEX IF NOT EXISTS recall_events_unattributed_idx
     ON recall_events(created_at) WHERE used IS NULL;
 
 
+-- OPEN LOOPS — what was concluded and never done.
+--
+-- A brain that records diagnoses but cannot tell you which ones were acted on
+-- is a filing cabinet. This is the closing half.
+--
+-- The motivating case: a root cause for a dead cron job was correctly diagnosed
+-- and written down on 2026-08-08, complete with the one-line fix. The fix was
+-- never applied. Eight days and 192 skipped runs later the same root cause was
+-- diagnosed again from scratch, by an agent that had the original in its own
+-- memory and did not look. Two other findings the same week — a self-test
+-- reporting total failure, and a red CI build — sat equally correct and equally
+-- unexecuted. The system was good at REMEMBERING and had no concept of
+-- FINISHING.
+--
+-- `status` is deliberately four-valued. `not_actionable` is not a failure: it
+-- records that a memory WAS judged and carries no commitment, which is what
+-- stops the detector paying to re-judge the whole corpus on every run. Silence
+-- is never treated as completion — an open loop ages, it does not expire.
+CREATE TABLE IF NOT EXISTS open_loops (
+    memory_id    integer PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+    action       text,                    -- one line: what was to be done
+    project      text,
+    status       text DEFAULT 'open',     -- open | closed | not_actionable | dismissed
+    detected_at  timestamptz DEFAULT now(),
+    closed_at    timestamptz,
+    closed_by    integer,                 -- the memory that closed it, if known
+    close_reason text
+);
+CREATE INDEX IF NOT EXISTS open_loops_status_idx ON open_loops(status, project);
+
+
 -- TOPICS — sub-classification inside a project.
 --
 -- `project` answers "which body of work"; a topic answers "which THING inside

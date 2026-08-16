@@ -11,6 +11,16 @@ because of use — was scored for the first time, against ground truth the ranke
 did not generate. It was failing.
 
 ### Added
+- **Open loops — what was concluded and never done** (`open_loops`,
+  `path_memory/open_loops.py`, `pm open` / `pm close`, MCP `open_loops` /
+  `close_loop`). A brain that records diagnoses but cannot say which were acted
+  on is a filing cabinet. A cheap regex narrows candidates, a model judges
+  whether the memory states something explicitly *not done*, and a budget bounds
+  the pass — the same shape as the dreaming pass, which now runs it hourly.
+  Loops close on evidence only: supersession, or an explicit close. **Silence is
+  never completion** — a loop ages, it never expires. Surfaced in the
+  session-start context rather than behind a command, because a list you must
+  opt into is a list that rots.
 - **Recall events — shown is not used** (`recall_events`, `path_memory/events.py`).
   Recall strengthened everything it returned, so the association graph was
   learning what the ranker likes rather than what turned out to be worth having

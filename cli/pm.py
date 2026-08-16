@@ -161,13 +161,43 @@ def cmd_bench(a):
     bench.run(limit=a.limit)
 
 
+ol = sub.add_parser("open"); ol.add_argument("--project"); ol.add_argument("--limit", type=int, default=20)
+ol.add_argument("--detect", action="store_true"); ol.add_argument("--budget", type=int, default=40)
+cl = sub.add_parser("close"); cl.add_argument("memory_id", type=int); cl.add_argument("--reason", default="done")
+
+
+def cmd_open(a):
+    """What was concluded and never done. Oldest first — an open loop gets more
+    important with age, not less."""
+    from path_memory import open_loops as L
+    if a.detect:
+        r = L.detect(budget=a.budget, project=a.project)
+        print(f"judged {r['judged']}, opened {r['opened']}, {r['llm_calls']} model calls")
+    L.close_superseded()
+    rows = L.open_loops(project=a.project, limit=a.limit)
+    if not rows:
+        print("Nothing outstanding.")
+        return
+    s = L.stats()
+    print(f"{s['open']} open ({s['open_over_7_days']} older than a week)\n")
+    for o in rows:
+        cited = f"  · revisited {o['cited_since']}x since" if o["cited_since"] else ""
+        print(f"[{o['memory_id']}] {str(o['created_at'])[:10]}{cited}\n    {o['action']}")
+    print("\nClose one with:  pm close <id> --reason '...'")
+
+
+def cmd_close(a):
+    from path_memory import open_loops as L
+    print("closed" if L.close(a.memory_id, a.reason) else "not an open loop")
+
+
 def main():
     args = p.parse_args()
     {
         "save": cmd_save, "recall": cmd_recall, "decay": cmd_decay, "paths": cmd_paths,
         "consolidate": cmd_consolidate, "temporal-sweep": cmd_temporal_sweep,
         "forget-project": cmd_forget_project, "dream": cmd_dream, "demo": cmd_demo,
-        "bench": cmd_bench,
+        "bench": cmd_bench, "open": cmd_open, "close": cmd_close,
     }.get(args.cmd, lambda _: p.print_help())(args)
 
 

@@ -31,6 +31,11 @@ the more you use it. Use it on every task, without being asked.
 - **Supersede, don't duplicate.** When a new fact replaces an old one, store the
   new memory and call `supersede(old_id, new_id)` so recall prefers the current
   version.
+- **Check what you never finished.** Call `open_loops` at the start of a session
+  and before re-investigating any problem. It lists what this brain already
+  worked out and nobody carried through — the answer may be there already,
+  unexecuted. Call `close_loop` the moment you finish one, or the list stops
+  being worth reading.
 - **Get unstuck with creativity.** When you're brainstorming or stuck, `recall`
   with `creativity` around 0.5–0.8 to pull in tangential "sparks" (flagged
   `serendipity`) — related-but-unexpected memories that can break a fixed view.

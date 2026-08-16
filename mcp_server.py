@@ -190,3 +190,32 @@ if __name__ == "__main__":
         print("[engram] ENGRAM_MCP_TOKEN not set — MCP endpoint is UNAUTHENTICATED; "
               "keep it on loopback (see deploy docs)", file=sys.stderr, flush=True)
         mcp.run(transport="sse")
+
+
+@mcp.tool()
+def open_loops(project: str = "", limit: int = 15) -> list:
+    """What was concluded and never done — the outstanding list, oldest first.
+
+    A brain that records diagnoses but cannot say which were acted on is a
+    filing cabinet. Check this at the start of a work session, and before
+    re-investigating anything: the answer may already be here, unexecuted.
+
+    `cited_since` counts later memories referencing this one. It is NOT
+    evidence the work was done — it distinguishes "nobody has looked at this
+    since" from "this was revisited and still not finished"."""
+    from path_memory import open_loops as _loops
+    _loops.close_superseded()
+    return [{"memory_id": o["memory_id"], "action": o["action"],
+             "subject": o["subject"], "project": o["project"],
+             "created": str(o["created_at"])[:10],
+             "cited_since": o["cited_since"]}
+            for o in _loops.open_loops(project=project or None, limit=limit)]
+
+
+@mcp.tool()
+def close_loop(memory_id: int, reason: str = "done") -> dict:
+    """Mark an open loop finished. Call this when you complete work that a
+    memory said was outstanding — otherwise it stays on the list forever and
+    the list stops being worth reading."""
+    from path_memory import open_loops as _loops
+    return {"ok": _loops.close(int(memory_id), reason), "memory_id": int(memory_id)}
