@@ -44,6 +44,22 @@ did not generate. It was failing.
 - **`recall(policy=...)`** — override individual ranking terms without forking
   the function. For the bench; not a general tuning surface.
 
+### Changed
+- **Two of the three fan-out lenses are retired.** Generation and retrieval now
+  default to the `questions` lens alone. Measured across three experiments and
+  two ground truths with a paired bootstrap: on direct lookup — the lens's own
+  design brief — `questions` is worth +0.055 MRR (p=0.015) and takes hit@1 from
+  0.627 to 0.707, while `thematic` (+0.005, p=0.184) and `vantages` (+0.002,
+  p=0.399) changed 4–10 results out of 150. Questions-only (0.7993) even edged
+  all-three-merged (0.7968), because perspective merging is `max()` — an inert
+  lens cannot help the right memory it fails to match, but can still promote a
+  wrong one it happens to match. This is a **3× cut in the cost of a write**
+  with no measured retrieval loss. Both retired lenses stay defined and their
+  stored rows are never deleted; `ENGRAM_LENSES=all` restores the historical
+  three. Honest caveat: `vantages` targets alias-shaped queries and no
+  experiment probed those, so it was retired for being inert on what was
+  tested, which is not the same as disproven.
+
 ### Fixed
 - **Use-history was making recall WORSE.** Held out (n=73): shipped scored MRR
   0.241 against plain cosine's 0.308. Probed with a memory's exact subject line

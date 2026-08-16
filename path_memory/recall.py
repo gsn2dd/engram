@@ -96,7 +96,23 @@ DEFAULT_POLICY = {
     "success_bonus": 0.0,
     "temporal":     True,          # apply TEMPORAL_FACTOR
     "superseded":   True,          # apply SUPERSEDED_FACTOR
-    "perspectives": True,          # merge the fan-out lens hits
+    # True = every lens; False = none; a tuple names which lens types to merge.
+    # Per-type control exists because the lenses are not one feature: they are
+    # three prompts producing three kinds of text, and measurement said they do
+    # NOT succeed or fail together.
+    #
+    # Default is questions-only, measured (2026-08-16, n=150, paired bootstrap).
+    # On direct lookup — a question the memory answers — the questions lens is
+    # worth +0.055 MRR (p=0.015) and takes hit@1 from 0.627 to 0.707. thematic
+    # (+0.005, p=0.184) and vantages (+0.002, p=0.399) changed 4-10 results out
+    # of 150. Merging all three scored 0.7968 against questions-only's 0.7993,
+    # so the inert two were not merely useless but slightly in the way — and on
+    # the associative task they were worse than using no lenses at all.
+    #
+    # Merging is max(): a lens can only RAISE a memory's score, never lower it.
+    # So an inert lens is not free. It cannot help the right memory it does not
+    # match, but it can still promote a wrong one that it does.
+    "perspectives": ("questions",),
     "level_pick":   True,          # summary-vs-members level picking
 }
 
@@ -412,6 +428,10 @@ def recall(
     # guarded with a rollback so it can never poison core recall.
     if pol["perspectives"]:
         try:
+            lens_filter, lens_params = "", []
+            if pol["perspectives"] is not True:
+                lens_filter = " AND mp.perspective = ANY(%s)"
+                lens_params = [list(pol["perspectives"])]
             cur.execute(
                 f"""SELECT m.id, m.person, m.subject, m.body, m.noun_type, m.node_type, m.node_key,
                            m.source_links, m.origin,
@@ -421,10 +441,12 @@ def recall(
                            m.temporal_anchor_start, m.temporal_anchor_end, m.superseded_by,
                            m.derived_from
                     FROM memory_perspectives mp JOIN memories m ON m.id = mp.memory_id
-                    WHERE {p_where}
+                    WHERE {p_where}{lens_filter}
                     ORDER BY mp.embedding <=> '{vec_str}'::vector
                     LIMIT %s""",
-                p_params,
+                # p_params already ends with the LIMIT value; the lens filter is
+                # a WHERE term, so it has to go in ahead of it.
+                p_params[:-1] + lens_params + p_params[-1:],
             )
             for pr in cur.fetchall():
                 mid = pr[0]

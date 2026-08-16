@@ -9,6 +9,31 @@ A memory becomes findable from angles its literal wording would never match.
 Add a lens to PERSPECTIVE_LENSES and the rest of the pipeline picks it up
 automatically — but keep lenses genuinely orthogonal; redundant lenses only add
 cost and noise, not recall.
+
+WHICH LENSES ARE ACTUALLY GENERATED, and why that is now one instead of three.
+
+All three shipped from the start on the reasoning that more angles must mean
+better recall. Measured on a 4,125-memory brain (2026-08-16), three experiments,
+two ground truths, paired bootstrap throughout:
+
+  * DIRECT LOOKUP — a question the memory answers, which is exactly what the
+    `questions` lens is for. questions +0.055 MRR (p=0.015) and hit@1 0.627 ->
+    0.707. thematic +0.005 (p=0.184). vantages +0.002 (p=0.399).
+  * ASSOCIATIVE HOP — find a different, related memory. No lens configuration
+    beat using none at all, and all-three-merged was mildly harmful.
+  * `questions` alone scored 0.7993 against 0.7968 for all three merged, so the
+    other two contributed nothing even where lenses clearly work.
+
+thematic and vantages changed 4-10 results out of 150. They are inert, and each
+costs a model call on every single Memory.save(). So generation defaults to the
+one that earns its keep — a 3x reduction in the most expensive part of a write,
+with no measured retrieval loss anywhere.
+
+They are kept defined, not deleted: ENGRAM_LENSES can re-enable them, and one
+honest gap justifies keeping the door open — `vantages` is designed for
+alias-shaped queries ("what does the production line call this?"), and none of
+the three experiments probed that. It was retired for being inert on the
+queries that were tested, which is not the same as proven useless.
 """
 import os
 
@@ -36,6 +61,15 @@ PERSPECTIVE_LENSES = {
         "the viewpoint each comes from, 3-6 short lines."
     ),
 }
+
+# Which lenses are generated on save. Comma-separated names in ENGRAM_LENSES
+# override; "all" restores the historical three. See the module docstring for
+# the measurements behind the default.
+ACTIVE_LENSES = tuple(
+    PERSPECTIVE_LENSES if os.environ.get("ENGRAM_LENSES", "").strip().lower() == "all"
+    else [n.strip() for n in os.environ.get("ENGRAM_LENSES", "questions").split(",")
+          if n.strip() in PERSPECTIVE_LENSES]
+) or ("questions",)
 
 
 def _generate(lens_prompt, person, subject, body):
@@ -69,9 +103,15 @@ def store_perspectives(cur, memory_id, person, subject, body):
     save. A failed lens is skipped, never fatal to the save. Returns the count
     of lenses actually stored.
     """
-    cur.execute("DELETE FROM memory_perspectives WHERE memory_id = %s", (memory_id,))
+    # Only the ACTIVE lenses are deleted and rewritten. A brain that once ran
+    # with all three keeps those rows: they cost nothing to leave, retrieval
+    # selects which types it queries, and deleting measured-inert data would
+    # destroy the only evidence available if the question is ever reopened.
+    cur.execute("DELETE FROM memory_perspectives WHERE memory_id = %s "
+                "AND perspective = ANY(%s)", (memory_id, list(ACTIVE_LENSES)))
     stored = 0
-    for name, prompt in PERSPECTIVE_LENSES.items():
+    for name in ACTIVE_LENSES:
+        prompt = PERSPECTIVE_LENSES[name]
         try:
             content = _generate(prompt, person, subject, body)
             if not content:
@@ -90,18 +130,25 @@ def store_perspectives(cur, memory_id, person, subject, body):
 
 
 def backfill(batch=None):
-    """Generate the full lens set for every memory missing any of them.
-    Returns the number of memories processed."""
+    """Generate the ACTIVE lens set for every memory missing any of it.
+    Returns the number of memories processed.
+
+    Counts only the active lens types. Counting every type would let a memory
+    carrying two now-retired lenses and none of the active one look complete —
+    the exact row that most needs backfilling, silently skipped.
+    """
     from .db import get_conn
     conn = get_conn()
     cur = conn.cursor()
     sql = """SELECT m.id, m.person, m.subject, m.body
              FROM memories m
              LEFT JOIN (SELECT memory_id, count(DISTINCT perspective) n
-                        FROM memory_perspectives GROUP BY memory_id) p ON p.memory_id = m.id
+                        FROM memory_perspectives
+                        WHERE perspective = ANY(%s)
+                        GROUP BY memory_id) p ON p.memory_id = m.id
              WHERE m.body IS NOT NULL AND COALESCE(p.n, 0) < %s
              ORDER BY m.id"""
-    args = [len(PERSPECTIVE_LENSES)]
+    args = [list(ACTIVE_LENSES), len(ACTIVE_LENSES)]
     if batch:
         sql += " LIMIT %s"
         args.append(batch)

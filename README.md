@@ -19,7 +19,7 @@
 
 **Engram** is an open-source memory *brain* for AI agents — not another vector store. You run it as a container, and your agent attaches to it as its persistent memory. It's built on a few ideas most "memory" libraries don't have:
 
-1. A memory is stored from **multiple perspectives at once** (a fan-out of lenses — its themes, the questions it answers, the different names it goes by), so it's findable from angles its literal text would never match.
+1. A memory is stored **under the questions it answers**, not just its own wording — so a question finds it even with no words in common. (Measured: +13% hit@1 on direct lookup. Two further lenses — its themes and its aliases — were built on the same reasoning and *retired*, because measurement found them inert. See [`docs/RECALL_MEASUREMENT.md`](docs/RECALL_MEASUREMENT.md); `ENGRAM_LENSES` re-enables them.)
 2. The act of retrieving knowledge **changes** the knowledge — connection weights between memories emerge from retrieval history, not from training data, and spreading activation surfaces what's linked *by use*, not just by meaning.
 3. Structured knowledge can be folded into a seed — a compact, weighted, semantically-indexed object an agent can consume directly.
 
@@ -40,7 +40,7 @@ Together they form a knowledge system that learns what matters by watching what 
 
 **How an agent uses it** — three verbs:
 
-- **Remember** — hand Engram something learned (a fact, an event, a decision). It files the memory from several perspectives at once (its theme, the questions it answers, the different names it goes by) and classifies it automatically — so it's findable later from angles its literal wording would miss.
+- **Remember** — hand Engram something learned (a fact, an event, a decision). It files the memory under **the questions it answers** as well as its own text, and classifies it automatically — so it's findable later from angles its literal wording would miss.
 - **Recall** — ask in natural language. Engram returns the best matches *and* what's associated with them *by use* (spreading activation), not just by keyword. Every recall quietly strengthens the paths it travels.
 - **Forget** — nothing is curated by hand. Memories that stop being recalled decay and eventually archive themselves. The brain keeps what earns its keep.
 

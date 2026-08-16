@@ -6,7 +6,7 @@ One was a structured-knowledge engine: fold verified, source-cited facts about a
 
 Merging them produced a single substrate where anything you attach — text or structured data — becomes memory that:
 
-- is indexed from **multiple perspectives at once** (its themes, the questions it answers, the names it goes by);
+- is indexed under **the questions it answers**, not only its own wording (two further lenses — themes and aliases — were built on the same idea and retired once measured);
 - grows an **association graph** from how it's actually used (spreading activation surfaces what's linked by use, not just by meaning);
 - **strengthens with retrieval and decays without it** — importance emerges from use, not assignment;
 - can be **scoped to a project** and **distilled** (a corrected memory ranks below its replacement without erasing it).

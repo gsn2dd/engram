@@ -108,5 +108,34 @@ class TestPolicyPlumbing(unittest.TestCase):
         self.assertEqual(_policy(None), dict(DEFAULT_POLICY))
 
 
+
+class TestLensSelection(unittest.TestCase):
+    """The fan-out lenses are three features, not one, and only one of them
+    survived measurement. These pin the shape of that decision."""
+
+    def test_retrieval_defaults_to_questions_only(self):
+        from path_memory.recall import DEFAULT_POLICY
+        self.assertEqual(DEFAULT_POLICY["perspectives"], ("questions",))
+
+    def test_generation_defaults_to_questions_only(self):
+        """Each extra lens is a model call on EVERY save. thematic and vantages
+        changed 4-10 results out of 150; generating them is cost without
+        measured return."""
+        from path_memory import perspectives
+        self.assertEqual(perspectives.ACTIVE_LENSES, ("questions",))
+
+    def test_retired_lenses_are_kept_defined_not_deleted(self):
+        """`vantages` was retired for being inert on the queries that were
+        tested — alias-shaped lookup, the thing it was designed for, was never
+        probed. Retired is not disproven, so the door stays open."""
+        from path_memory import perspectives
+        self.assertIn("vantages", perspectives.PERSPECTIVE_LENSES)
+        self.assertIn("thematic", perspectives.PERSPECTIVE_LENSES)
+
+    def test_perspectives_policy_accepts_all_three_shapes(self):
+        from path_memory.recall import _policy
+        for value in (True, False, ("questions",), ("questions", "thematic")):
+            self.assertEqual(_policy({"perspectives": value})["perspectives"], value)
+
 if __name__ == "__main__":
     unittest.main()

@@ -326,6 +326,121 @@ def health_probe(sample_size: int = 20, topk: int = 10, seed_sql: str = "") -> D
     }
 
 
+LENS_TYPES = ("questions", "thematic", "vantages")
+
+
+def as_question(subject: str, body: str) -> Optional[str]:
+    """Rephrase a memory's topic as a question someone would actually ask.
+
+    The lens types are built for different query SHAPES — the `questions` lens
+    is explicitly "what would someone be trying to solve when this memory is
+    what they need". Scoring it only against subject-line probes would be
+    testing it on the one phrasing it was not designed for, and then retiring
+    it for underperforming. This generates the other phrasing so the comparison
+    is fair.
+
+    Deliberately derived from the SOURCE memory only. The answer being looked
+    for is a different memory it links to, so the generator never sees the
+    target and cannot leak it into the query.
+    """
+    import os
+    from .llm import complete_text
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=60,
+            messages=[{"role": "user", "content":
+                "Write ONE short natural question (8-16 words) that someone working on "
+                "this topic would actually type. Do not copy long phrases verbatim. "
+                "Reply with only the question.\n\n"
+                f"Subject: {subject}\nBody: {body[:600]}"}],
+        )
+        return complete_text(msg, what="bench question", quiet=True)
+    except Exception:
+        return None
+
+
+def perspective_bench(limit: int = 10, verbose: bool = True,
+                      query_style: str = "subject") -> Dict:
+    """Do the fan-out lenses actually help recall — and do all three help?
+
+    This tests engram's FIRST README claim: that a memory indexed from several
+    perspectives is "findable from angles its literal text would never match".
+    It is also the most expensive claim in the engine, because generating the
+    lenses costs model calls on every single Memory.save().
+
+    Two design points, both necessary or the number is meaningless:
+
+      * ONLY CASES WHOSE TARGET HAS LENSES COUNT. Roughly half this corpus has
+        no perspectives at all, and including those cases would dilute whatever
+        effect exists toward zero and let a real result hide behind an average.
+      * THE LENS TYPES ARE MEASURED SEPARATELY. They are not one feature; they
+        are three prompts producing three different kinds of text, and there is
+        no reason to assume they succeed or fail together. Merging them into a
+        single on/off number is how you end up keeping a harmful one because a
+        useful one carried it.
+
+    Ground truth is the same wikilink set as run() — labels the ranker had no
+    vote in.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""SELECT DISTINCT memory_id FROM memory_perspectives
+                   WHERE embedding IS NOT NULL""")
+    has_lenses = {r[0] for r in cur.fetchall()}
+    cur.close()
+
+    cases = [c for c in build_wikilink_set(conn)
+             if any(t in has_lenses for t in c["expected"])]
+
+    if query_style == "question":
+        cur = conn.cursor()
+        kept = []
+        for c in cases:
+            cur.execute("SELECT subject, body FROM memories WHERE id = %s", (c["source_id"],))
+            row = cur.fetchone()
+            q = as_question(row[0], row[1]) if row else None
+            if q:
+                c = dict(c, query=q)
+                kept.append(c)
+        cur.close()
+        cases = kept
+
+    if verbose:
+        print(f"[perspectives] {len(cases)} cases whose target has lenses "
+              f"({len(has_lenses)} memories carry any), query_style={query_style}",
+              flush=True)
+
+    cache: Dict[str, list] = {}
+    original = _recall_mod.embed_one
+
+    def cached_embed(text):
+        if text not in cache:
+            cache[text] = original(text)
+        return cache[text]
+
+    _recall_mod.embed_one = cached_embed
+    base = {"temporal": False, "superseded": False, "level_pick": False}
+    report = {}
+    try:
+        rungs = [("no lenses", False), ("all lenses", True)]
+        rungs += [(f"only {t}", (t,)) for t in LENS_TYPES]
+        for name, setting in rungs:
+            scored = [score_case(c, dict(base, perspectives=setting), limit)
+                      for c in cases]
+            report[name] = aggregate(scored)
+            if verbose:
+                a = report[name]
+                print(f"  {name:<16} hit@1 {a['hit@1']:.3f}  hit@5 {a['hit@5']:.3f}  "
+                      f"hit@10 {a['hit@10']:.3f}  mrr {a['mrr']:.3f}", flush=True)
+    finally:
+        _recall_mod.embed_one = original
+        conn.close()
+    return report
+
+
 def use_signal_readiness() -> Dict:
     """Report whether the use-signal question can be answered yet, and say so
     plainly when it cannot.
@@ -355,6 +470,11 @@ if __name__ == "__main__":
         print(f"[use-signal] events={r['events']} attributed={r['attributed']} "
               f"(of which judged-useless={r['attributed_empty']}) "
               f"use_marks={r['memory_use_marks']}\n  {r['verdict']}")
+        sys.exit(0)
+
+    if "--perspectives" in sys.argv:
+        style = "question" if "--question-style" in sys.argv else "subject"
+        perspective_bench(query_style=style)
         sys.exit(0)
 
     if "--health" in sys.argv:

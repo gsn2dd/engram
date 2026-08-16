@@ -298,10 +298,80 @@ support a change:
   (MRR 0.310 vs 0.323 without). The effect is small and within noise at n=140,
   and the probes here are subject lines, whereas the fan-out lenses are built
   for queries phrased as questions — the set may simply not represent what they
-  are for. Needs the transcript-derived question set before anyone touches it.
+  are for. *(Resolved later the same day — see the perspectives section below.)*
 - **`temporal`, `supersede` and `level_pick` are all no-ops here**, which is
   expected: the wikilink set contains few calendar-anchored, superseded or
   derived memories. Absence of effect on this set is not evidence against them.
 
 Both are exactly the sort of thing that would previously have been settled by
 argument.
+
+---
+
+## The perspectives verdict (2026-08-16)
+
+The deferred finding above turned out to be worth chasing, and chasing it
+properly reversed the first answer twice before settling.
+
+**The claim under test** is engram's first README line: a memory indexed under
+several lenses is "findable from angles its literal text would never match". It
+is also the most expensive claim in the engine — three lenses meant three model
+calls on every `Memory.save()`.
+
+**Three experiments, two ground truths, paired bootstrap throughout.** The
+pairing matters: every rung runs identical queries, so comparing per-case
+reciprocal ranks is far more sensitive than comparing means, and it is what
+exposed the first two results as noise.
+
+| rung | associative, subject probes | associative, question probes | **direct lookup** |
+|---|---|---|---|
+| no lenses | 0.352 | 0.290 | 0.745 |
+| all three | 0.350 | 0.266 | 0.797 |
+| questions | **0.366** | 0.260 | **0.799** |
+| thematic | 0.347 | 0.278 | 0.750 |
+| vantages | 0.353 | **0.301** | 0.747 |
+
+*(MRR. Bold = significant at p<0.05 in that column.)*
+
+**What replicated and what did not.** On the associative task — *given memory A,
+find the different memory it links to* — `questions` won with subject-line
+probes (p=0.023) and `vantages` won with question-shaped probes (p=0.009), in
+opposite directions. Across ten comparisons, one hit each way is what chance
+produces. Both were discarded. What survived both runs is that **no lens
+configuration beat using none**, and all-three-merged was never better.
+
+The third experiment is the one that mattered, because it tests the lens on its
+own design brief: generate a question a memory answers, then look for that
+memory. Self-retrieval flatters in absolute terms, which is why the numbers are
+0.75+ — but the comparison is paired and one-variable, so the flattery applies
+to both sides and cancels. There, `questions` is worth **+0.055 MRR (p=0.015)**
+and takes hit@1 from **0.627 to 0.707**. thematic (+0.005, p=0.184) and vantages
+(+0.002, p=0.399) changed 4–10 results out of 150.
+
+**The decision.** Generation and retrieval both default to `questions` only.
+That is a **3× cut in the cost of a write** with no measured retrieval loss
+anywhere — and a small gain, since questions-only (0.7993) edged all-three
+(0.7968) even where lenses plainly work.
+
+Why an inert lens is not free: perspective merging takes `max()` of a memory's
+literal cosine and its best lens cosine, so a lens can only ever *raise* a
+score. An inert lens cannot help the right memory it fails to match, but it can
+still promote a wrong one that it happens to match. That asymmetry is why
+"harmless if unused" does not hold here.
+
+**The honest caveat, and why the retired lenses are kept in the code.**
+`vantages` exists for alias-shaped queries — *what does the production line call
+this thing?* — and none of the three experiments probed that. It was retired for
+being inert on the queries that were tested, which is not the same as proven
+useless. `ENGRAM_LENSES=all` restores the historical three, and existing rows
+are never deleted, so reopening the question needs no backfill.
+
+### A methodological note on re-running these
+
+The wikilink ground truth **grows as the brain is used** — writing a memory that
+cites `[[an id]]` adds a case. The runs above moved from 140 cases / 272 pairs
+to 144 / 282 within a single day's work. Numbers from different days are
+therefore not directly comparable, and a rung that "improved" between runs may
+simply be facing a different question set. Comparisons must come from rungs run
+against each other in the SAME invocation, which is why every table here does
+that and why the paired bootstrap is the test used throughout.
