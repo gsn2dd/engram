@@ -124,6 +124,22 @@ ts = sub.add_parser("temporal-sweep"); ts.add_argument("--limit", type=int, defa
 fp = sub.add_parser("forget-project"); fp.add_argument("project"); fp.add_argument("--yes", action="store_true")
 dm = sub.add_parser("demo"); dm.add_argument("--verify", action="store_true")
 dr = sub.add_parser("dream"); dr.add_argument("--project"); dr.add_argument("--budget", type=int, default=12)
+bn = sub.add_parser("bench"); bn.add_argument("--health", action="store_true")
+bn.add_argument("--limit", type=int, default=10)
+
+
+def cmd_bench(a):
+    """--health is the cheap daily canary (no labels, exits non-zero on FAIL);
+    bare `pm bench` runs the full policy ladder, which needs a brain with
+    [[id]] wikilinks between memories to score against."""
+    from path_memory import bench
+    if a.health:
+        r = bench.health_probe()
+        print(f"[health] n={r['n']} hit@5={r['hit@5']:.2f} hit@10={r['hit@10']:.2f} "
+              f"avg_rank={r['avg_rank']} -> {r['verdict']}")
+        raise SystemExit(0 if r["verdict"] == "OK" else 1)
+    bench.run(limit=a.limit)
+
 
 def main():
     args = p.parse_args()
@@ -131,6 +147,7 @@ def main():
         "save": cmd_save, "recall": cmd_recall, "decay": cmd_decay, "paths": cmd_paths,
         "consolidate": cmd_consolidate, "temporal-sweep": cmd_temporal_sweep,
         "forget-project": cmd_forget_project, "dream": cmd_dream, "demo": cmd_demo,
+        "bench": cmd_bench,
     }.get(args.cmd, lambda _: p.print_help())(args)
 
 

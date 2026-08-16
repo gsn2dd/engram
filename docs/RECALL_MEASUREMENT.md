@@ -1,6 +1,8 @@
 # Measuring recall: a policy bench for an aged brain
 
-**Status:** sketch, not started. Written 2026-08-16.
+**Status:** built and run, 2026-08-16. Steps 1 and 2 of the sequencing below are
+done and shipped (`path_memory/bench.py`); steps 3 and 4 are not started. What
+the first run found is at the end.
 
 ## Why now
 
@@ -251,3 +253,55 @@ and it would be careless to drop it here.
   relevance signal the ranker did not generate.
 - n≈60 will not separate policies that differ by a few percent. It will
   comfortably separate the ones worth acting on.
+
+---
+
+## What the first run found (2026-08-16)
+
+The bench was built and run on mindspace: 140 wikilink cases, 272 labelled
+pairs, split easy/hard at the median pair-cosine of 0.8462.
+
+**The shipped ranking was worse than plain cosine similarity.** On the held-out
+half (n=73, tuned on the other half):
+
+| policy | hit@5 | MRR |
+|---|---|---|
+| cosine only | 0.479 | 0.308 |
+| shipped (`USE_BONUS=0.5`, max-norm) | 0.315 | **0.241** |
+| new (`USE_BONUS=0.1`, rank-norm) | 0.493 | **0.344** |
+
+A second, independent ground truth agreed even more starkly. Probing with a
+memory's *exact subject line* (n=120) — a question the brain should answer
+perfectly — the old ranking returned the right memory first **13.3%** of the
+time against cosine's **85.8%**. It was burying exact matches under
+globally-popular ones.
+
+**Root cause: the shape of the weight transform, not its coefficient.** Weight
+was normalised against the pool *maximum*, and accumulated weight is heavy-
+tailed — mean 0.19, max 5.83, only 15% of memories carrying any weight at all.
+Dividing by the maximum handed a handful of memories nearly the whole bonus and
+promoted them into every result set regardless of the question. That is the same
+popularity-beats-relevance defect the bounded multiplier was introduced to fix
+in June; it survived because only the coefficient was ever revisited, never the
+shape. Rank normalisation is outlier-immune and claims only what the design ever
+meant — the *order* of use, not the magnitude.
+
+**The claim, restated as a measurement.** With the fix, use-history now earns
+its place: on the hard pairs — the ones cosine cannot find, which is the entire
+reason the association graph exists — it is worth **+55% MRR** (0.187 vs 0.121),
+while no longer costing anything on the easy ones.
+
+Two findings were recorded and *not* acted on, because the evidence does not yet
+support a change:
+
+- **Perspectives cost slightly more than they return** on this ground truth
+  (MRR 0.310 vs 0.323 without). The effect is small and within noise at n=140,
+  and the probes here are subject lines, whereas the fan-out lenses are built
+  for queries phrased as questions — the set may simply not represent what they
+  are for. Needs the transcript-derived question set before anyone touches it.
+- **`temporal`, `supersede` and `level_pick` are all no-ops here**, which is
+  expected: the wikilink set contains few calendar-anchored, superseded or
+  derived memories. Absence of effect on this set is not evidence against them.
+
+Both are exactly the sort of thing that would previously have been settled by
+argument.

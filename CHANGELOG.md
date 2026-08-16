@@ -4,6 +4,47 @@ All notable changes to Engram are recorded here. Engram uses
 [semantic versioning](https://semver.org/); each version maps to a git tag and a
 published container image.
 
+## [Unreleased]
+
+The "measure the claim" release. Engram's distinctive bet — that recall improves
+because of use — was scored for the first time, against ground truth the ranker
+did not generate. It was failing.
+
+### Added
+- **The recall bench** (`path_memory/bench.py`) — a policy ladder that fixes the
+  corpus, query and embedding and varies exactly one thing: the ranking policy.
+  Ground truth comes from `[[id]]` wikilinks between memories, the only
+  relevance labels in a brain that the ranker had no vote in; cases split
+  easy/hard by pair cosine, because the hard pairs are the only place
+  association can prove anything similarity has not already done. See
+  [`docs/RECALL_MEASUREMENT.md`](docs/RECALL_MEASUREMENT.md).
+- **Health probe** (`pm bench --health`) — the cheap canary: can a memory still
+  be found by its own subject line? Runs inside the engine, so it embeds through
+  the same provider as the corpus by construction, and returns a verdict rather
+  than a number. Its threshold is measured against a simulated fault (healthy
+  hit@10 0.88; query vectors in a foreign space 0.00), not chosen.
+- **`recall(policy=...)`** — override individual ranking terms without forking
+  the function. For the bench; not a general tuning surface.
+
+### Fixed
+- **Use-history was making recall WORSE.** Held out (n=73): shipped scored MRR
+  0.241 against plain cosine's 0.308. Probed with a memory's exact subject line
+  (n=120), the shipped ranking returned it first 13.3% of the time versus
+  cosine's 85.8%. Root cause was the *shape* of the transform, not its
+  coefficient: weight was normalised against the pool maximum, and on a
+  heavy-tailed distribution (mean 0.19, max 5.83, 15% non-zero) that gave a
+  handful of memories nearly the whole bonus on every query — the same
+  popularity-beats-relevance defect fixed in 0.4.0, surviving at lower
+  amplitude because only the coefficient had ever been revisited. Now rank-
+  normalised (outlier-immune, and the order of use is all the design ever
+  claimed) with `USE_BONUS` 0.5 → 0.1. New: MRR 0.344, and **+55% MRR on the
+  hard pairs** the association graph exists for.
+- **`increment_weight=False` now gates edge writes, not just node weights.** A
+  read-only recall was still laying down permanent association edges, so
+  mindspace's transcript search had been building the graph it is documented
+  never to touch — and no benchmark can score a graph that every scoring run
+  alters.
+
 ## [0.4.0] — 2026-08-08
 
 The "brain that maintains itself" release: engram now compresses its own
