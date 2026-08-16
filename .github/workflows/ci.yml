@@ -33,7 +33,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        # pytest is a TEST dependency and deliberately not in requirements.txt,
+        # which is installed into the container image — the runtime has no
+        # business carrying a test runner. Capped by major like everything in
+        # that file, for the reason recorded at the top of it.
+        run: |
+          pip install -r requirements.txt
+          pip install "pytest>=7.0,<9.0"
 
       - name: Apply schema
         env:
@@ -71,9 +77,19 @@ jobs:
         # Temporal tests run anywhere; the feature tests (perspectives / project
         # scoping / distillation) need OPENAI_API_KEY + ANTHROPIC_API_KEY and
         # skip automatically when they're absent (as they are in CI).
+        #
+        # PYTEST, NOT `unittest discover`. tests/conftest.py builds an ephemeral
+        # database per run and claims "no test can touch a real brain, however
+        # badly written it is" — but conftest is a pytest mechanism, so under
+        # unittest that protection silently does not exist. CI was therefore
+        # running the suite with the guarantee its own tests document turned
+        # off, and so was anyone who ran unittest on a machine whose DB_* point
+        # at a live brain. Running pytest here also means schema.sql's
+        # FRESH-INSTALL path is exercised on every CI run, which is the other
+        # half of what conftest was written for.
         env:
           DB_NAME: pathmemoria
           DB_USER: pathuser
           DB_PASS: pathpass
           DB_HOST: localhost
-        run: python3 -m unittest discover -s tests -v
+        run: python3 -m pytest tests -v

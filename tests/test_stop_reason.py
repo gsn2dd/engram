@@ -9,8 +9,11 @@ answer. Nothing downstream can tell the difference afterwards.
 An audit on 2026-08-08 found only one of nine call sites across our codebases
 handling truncation. These cover the two in engram that mattered most.
 
-The Anthropic client is stubbed, so these cost nothing and need no API key.
+The Anthropic client is stubbed, so these cost nothing and make no API call.
+They do set a DUMMY key, because the call sites read the environment variable
+before they touch the client — see TestClassifyTruncation for what that cost.
 """
+import os
 import sys
 import types
 import unittest
@@ -88,16 +91,63 @@ class TestPerspectiveTruncation(unittest.TestCase):
 class TestClassifyTruncation(unittest.TestCase):
     """max_tokens=5 on a one-word answer makes truncation a live possibility,
     and the old code hid it: 'project' cut short failed the membership test and
-    silently became 'thing' — a wrong classification presented as a decision."""
+    silently became 'thing' — a wrong classification presented as a decision.
+
+    THE KEY MUST BE SET even though the client is stubbed. classify_noun reads
+    os.environ["ANTHROPIC_API_KEY"] *before* it uses the client, so without one
+    it raises KeyError and takes the same `except` branch as a failed call.
+    That is not a hypothetical: this class had no key handling, and in CI (which
+    has no secrets) all three tests took the exception path — reaching the
+    heuristic through a KeyError rather than through anything they were written
+    to test. One failed honestly and turned CI red; the other two passed for
+    that wrong reason.
+
+    Mutation testing then found the deeper version of the same problem, which
+    the missing key had been hiding: even WITH a key, the truncation tests used
+    fragments ("plac", "banana") that the NOUN_TYPES membership check rejects on
+    its own. Delete the stop_reason guard entirely and they still pass. They
+    were testing the vocabulary check and calling it truncation coverage. See
+    test_a_truncated_but_VALID_looking_label_is_still_rejected for the case that
+    actually distinguishes the two.
+    """
 
     def setUp(self):
         self._saved = sys.modules.get("anthropic")
+        self._saved_key = os.environ.get("ANTHROPIC_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "test-key-not-used"
 
     def tearDown(self):
         if self._saved is None:
             sys.modules.pop("anthropic", None)
         else:
             sys.modules["anthropic"] = self._saved
+        if self._saved_key is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = self._saved_key
+
+    def test_a_truncated_but_VALID_looking_label_is_still_rejected(self):
+        """The only version of this test that can actually fail.
+
+        A fragment like "plac" is caught by the NOUN_TYPES membership check
+        whether or not stop_reason is consulted, so a test built on one passes
+        identically with the truncation guard removed — verified by mutation.
+        It proves the vocabulary check works and says nothing about truncation.
+
+        The case the guard exists for is a fragment that IS a valid label: the
+        model begins "place holder is not..." and max_tokens cuts it to exactly
+        "place". Membership sees a legitimate answer; only stop_reason knows the
+        model was mid-sentence. Here the memory is plainly a project, so
+        accepting the fragment yields "place" and consulting stop_reason yields
+        the heuristic's "project".
+        """
+        from path_memory import classify
+        _stub_anthropic("place", "max_tokens")
+        got = classify.classify_noun(None, "engram",
+                                     "The open-source memory engine codebase and its release process.")
+        self.assertEqual(got, "project",
+                         "a truncated answer must be discarded even when the fragment "
+                         "happens to be a valid label")
 
     def test_truncation_falls_back_to_the_heuristic_not_to_thing(self):
         from path_memory import classify
