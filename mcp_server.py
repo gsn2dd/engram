@@ -30,15 +30,39 @@ mcp = FastMCP(
 def remember(subject: str, body: str, person: str = "", project: str = "") -> dict:
     """Store a memory in the brain.
 
-    subject: a short label. body: the full content/fact/decision.
+    subject: a SHORT, DISTINCTIVE label — this is the main handle the memory is
+             found by later, so say what makes this one different from its
+             neighbours, not just which category it belongs to.
+    body:    the full content/fact/decision. Put the conclusion first; recall
+             injects a preview, so a long tail may never be read.
     person:  optional entity this belongs to (a person, place, project, topic).
     project: optional project scope, so one brain can serve many projects.
-    Returns the new memory id. The memory is auto-classified and indexed under
-    several perspective lenses so it's findable from many angles later.
+
+    Always succeeds and returns the new memory id. May also return `warnings`
+    — advisory only, nothing was rejected. They flag the failure modes that are
+    invisible one memory at a time and unfixable in bulk later, chiefly a
+    subject template that would make this memory and its siblings impossible to
+    tell apart. Acting on one means writing a better memory next time, or
+    calling `supersede` if you have just replaced something.
     """
     mid = Memory.save(subject=subject, body=body,
                       person=person or None, project=project or None)
-    return {"id": mid}
+    out = {"id": mid}
+    # Advisory only, and never allowed to affect the write that already
+    # succeeded — hence the guard around it as well as inside it.
+    try:
+        from path_memory import quality
+        from path_memory.db import get_conn
+        conn = get_conn()
+        try:
+            warnings = quality.messages(conn, mid)
+        finally:
+            conn.close()
+        if warnings:
+            out["warnings"] = warnings
+    except Exception:
+        pass
+    return out
 
 
 @mcp.tool()

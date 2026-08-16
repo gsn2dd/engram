@@ -20,6 +20,18 @@ def cmd_save(args):
         temporal_anchor_end=args.anchor_end or None,
     )
     print(f"Saved memory {mid}")
+    # Advisory. The save already happened and nothing here can undo it.
+    try:
+        from path_memory import quality
+        from path_memory.db import get_conn
+        conn = get_conn()
+        try:
+            for w in quality.messages(conn, mid):
+                print(f"  ! {w}")
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 
 def cmd_recall(args):
