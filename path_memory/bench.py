@@ -441,26 +441,89 @@ def perspective_bench(limit: int = 10, verbose: bool = True,
     return report
 
 
-def use_signal_readiness() -> Dict:
-    """Report whether the use-signal question can be answered yet, and say so
-    plainly when it cannot.
+def use_signal_readiness(limit: int = 10) -> Dict:
+    """Can the use-signal question be answered yet? Answered by MEASUREMENT.
 
-    A bench rung that silently reports "no difference" because it has no data
-    looks identical to one reporting "no difference" because the idea does not
-    work. Distinguishing those two is the entire job of this function.
+    The first version of this counted attributed events against a threshold of
+    200. That was the wrong quantity and a guessed number — the two failures
+    this file exists to avoid. The ranking term does not read events; it reads
+    `success_count` ON MEMORIES. At the observed attribution rate, 200 events
+    would have produced roughly ten marked memories out of thousands, and the
+    rung would still have reported "no difference" — indistinguishable from the
+    idea not working.
+
+    So instead of a proxy threshold, run the rung and count how many bench
+    results it CHANGES. Zero changed results means the question is unanswerable
+    on the data available, whatever the event count says. Any other number and
+    the comparison is real. Nothing is guessed.
     """
     from . import events
     r = events.readiness()
-    if r["ready"]:
-        verdict = ("READY — run the ladder and read the +use-signal rung; "
-                   "if it wins, raise success_bonus off 0 in DEFAULT_POLICY")
-    elif r["events"] == 0:
-        verdict = ("NO CAPTURE — nothing is calling events.record(). The rung "
-                   "cannot mean anything until something does.")
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM memories WHERE success_count > 0 AND archived = false")
+    r["memories_marked_used"] = cur.fetchone()[0]
+    cur.close()
+
+    changed = better = worse = 0
+    cases = []
+    try:
+        cases = build_wikilink_set(conn)
+        cache: Dict[str, list] = {}
+        original = _recall_mod.embed_one
+
+        def cached_embed(text):
+            if text not in cache:
+                cache[text] = original(text)
+            return cache[text]
+
+        _recall_mod.embed_one = cached_embed
+        try:
+            for c in cases:
+                off = score_case(c, {"success_bonus": 0.0}, limit)
+                on = score_case(c, {"success_bonus": 0.3}, limit)
+                if off["best_rank"] != on["best_rank"]:
+                    changed += 1
+                    # Direction matters more than movement. A term that moves
+                    # results only downward is not "not yet measurable" — it is
+                    # measurably harmful, and those are opposite conclusions.
+                    o = off["best_rank"] or 10 ** 6
+                    n = on["best_rank"] or 10 ** 6
+                    if n < o:
+                        better += 1
+                    elif n > o:
+                        worse += 1
+        finally:
+            _recall_mod.embed_one = original
+    except Exception:
+        changed = -1
+    finally:
+        conn.close()
+
+    r["bench_cases"] = len(cases)
+    r["results_changed_by_the_term"] = changed
+    r["better"], r["worse"] = better, worse
+    if changed > 0 and better > worse:
+        r["verdict"] = (f"ANSWERABLE — the term moves {changed}/{len(cases)} results, "
+                        f"{better} better vs {worse} worse. Run the ladder and read "
+                        f"the +use-signal rung before changing the default.")
+    elif changed > 0:
+        r["verdict"] = (
+            f"HARMFUL SO FAR — the term moves {changed}/{len(cases)} results and "
+            f"{worse} of them get WORSE ({better} better). With only "
+            f"{r['memories_marked_used']} memories carrying a use mark it is "
+            f"promoting a near-random handful, which is the max-norm weight bug "
+            f"in miniature. Leave success_bonus at 0 and let marks accumulate.")
+    elif changed == 0:
+        r["verdict"] = (
+            f"NOT ANSWERABLE — only {r['memories_marked_used']} memories carry a "
+            f"use mark, so the term changes NOTHING on {len(cases)} bench cases. "
+            f"A rung run now would report 'no difference' for lack of data, which "
+            f"is not the same as the idea failing. Leave success_bonus at 0.")
     else:
-        verdict = (f"CAPTURING — {r['attributed']}/{r['ready_at']} attributed. "
-                   f"The +use-signal rung is not interpretable yet.")
-    r["verdict"] = verdict
+        r["verdict"] = "could not evaluate (no ground truth or no database)"
+    r["ready"] = changed > 0
     return r
 
 
@@ -468,8 +531,10 @@ if __name__ == "__main__":
     if "--use-signal" in sys.argv:
         r = use_signal_readiness()
         print(f"[use-signal] events={r['events']} attributed={r['attributed']} "
-              f"(of which judged-useless={r['attributed_empty']}) "
-              f"use_marks={r['memory_use_marks']}\n  {r['verdict']}")
+              f"(judged-useless={r['attributed_empty']}) "
+              f"memories_marked_used={r.get('memories_marked_used')} "
+              f"bench_results_changed={r.get('results_changed_by_the_term')}"
+              f"/{r.get('bench_cases')}\n  {r['verdict']}")
         sys.exit(0)
 
     if "--perspectives" in sys.argv:

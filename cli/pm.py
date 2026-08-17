@@ -150,8 +150,10 @@ def cmd_bench(a):
     if getattr(a, "use_signal", False):
         r = bench.use_signal_readiness()
         print(f"[use-signal] events={r['events']} attributed={r['attributed']} "
-              f"(of which judged-useless={r['attributed_empty']}) "
-              f"use_marks={r['memory_use_marks']}\n  {r['verdict']}")
+              f"(judged-useless={r['attributed_empty']}) "
+              f"memories_marked_used={r.get('memories_marked_used')} "
+              f"bench_results_changed={r.get('results_changed_by_the_term')}"
+              f"/{r.get('bench_cases')}\n  {r['verdict']}")
         return
     if a.health:
         r = bench.health_probe()
