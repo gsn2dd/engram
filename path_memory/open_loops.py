@@ -107,13 +107,30 @@ def _judge(subject: str, body: str) -> Optional[str]:
         return None
 
 
+# How far back to look for unfinished work. Watching the first day of real
+# operation: detection swept months of history and opened ~12 loops an hour with
+# nothing closing them, reaching 132 open of which 119 were over a week old.
+# That is the failure this feature exists to prevent, reproduced inside it — a
+# list too long to read is a list nobody reads.
+#
+# The cause is not a bad detector; those loops are genuine. It is that mining
+# years of a fast-moving project's history yields archaeology, not work.
+# Something concluded and abandoned four months ago on a project that has since
+# moved on is a fact about the past. Something concluded last week is a job.
+DEFAULT_SINCE_DAYS = int(os.environ.get("ENGRAM_LOOPS_SINCE_DAYS", "45"))
+
+
 def detect(budget: int = DEFAULT_BUDGET, project: Optional[str] = None,
-           tiers=("curated", "insight", "decision", "project")) -> Dict[str, Any]:
+           tiers=("curated", "insight", "decision", "project"),
+           since_days: Optional[int] = DEFAULT_SINCE_DAYS) -> Dict[str, Any]:
     """Judge memories not yet judged. Returns a report.
 
     Records a row for EVERY memory judged, including the ones that carry no
     commitment (`not_actionable`). Without that the detector would re-read the
     whole corpus on every run and the budget would never reach new material.
+
+    `since_days=None` mines the whole history — useful once, deliberately not
+    the default.
     """
     conn = get_conn()
     cur = conn.cursor()
@@ -125,6 +142,9 @@ def detect(budget: int = DEFAULT_BUDGET, project: Optional[str] = None,
                  AND m.tier = ANY(%s)
                  AND m.body IS NOT NULL"""]
     params: List[Any] = [list(tiers)]
+    if since_days:
+        sql.append("AND m.created_at > now() - (%s * interval '1 day')")
+        params.append(since_days)
     if project:
         sql.append("AND m.project = %s")
         params.append(project)
@@ -164,6 +184,31 @@ def detect(budget: int = DEFAULT_BUDGET, project: Optional[str] = None,
     cur.close()
     conn.close()
     return {"judged": judged, "opened": opened, "llm_calls": spent, "found": found}
+
+
+def age_out(older_than_days: int = DEFAULT_SINCE_DAYS) -> int:
+    """Move loops older than the detection window to `dismissed`.
+
+    NOT `closed`. Nothing here claims the work was done — the distinction is the
+    whole point, and `close_reason` says so explicitly. This only removes
+    archaeology from the active list so the active list stays readable, which is
+    the difference between a working reminder and the pile of unread findings
+    that motivated the feature.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""UPDATE open_loops o
+                      SET status = 'dismissed', closed_at = now(),
+                          close_reason = 'aged out of the active window — NOT known to be done'
+                     FROM memories m
+                    WHERE m.id = o.memory_id AND o.status = 'open'
+                      AND m.created_at < now() - (%s * interval '1 day')""",
+                (older_than_days,))
+    n = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return n
 
 
 def close_superseded() -> int:
