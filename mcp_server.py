@@ -27,7 +27,8 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def remember(subject: str, body: str, person: str = "", project: str = "") -> dict:
+def remember(subject: str, body: str, person: str = "", project: str = "",
+             recall_form: str = "") -> dict:
     """Store a memory in the brain.
 
     subject: a SHORT, DISTINCTIVE label — this is the main handle the memory is
@@ -37,6 +38,12 @@ def remember(subject: str, body: str, person: str = "", project: str = "") -> di
              injects a preview, so a long tail may never be read.
     person:  optional entity this belongs to (a person, place, project, topic).
     project: optional project scope, so one brain can serve many projects.
+    recall_form: OPTIONAL one-paragraph version shown when this memory is
+             recalled — the conclusion plus anything unregenerable (numbers,
+             ids, paths, dates). The body is always stored whole; this is only
+             what gets INJECTED, so a long memory stops arriving truncated at
+             whatever came first. Supply it when you know what mattered; leave
+             it empty and the brain writes one offline.
 
     Always succeeds and returns the new memory id. May also return `warnings`
     — advisory only, nothing was rejected. They flag the failure modes that are
@@ -46,7 +53,8 @@ def remember(subject: str, body: str, person: str = "", project: str = "") -> di
     calling `supersede` if you have just replaced something.
     """
     mid = Memory.save(subject=subject, body=body,
-                      person=person or None, project=project or None)
+                      person=person or None, project=project or None,
+                      recall_form=recall_form or None)
     out = {"id": mid}
     # Advisory only, and never allowed to affect the write that already
     # succeeded — hence the guard around it as well as inside it.
@@ -106,7 +114,13 @@ def recall(query: str, person: str = "", project: str = "", limit: int = 5,
     # raises — an analytics write must not be able to break a recall.
     from path_memory import events as _events
     event_id = _events.record(query, rows, project=project or None, source="mcp")
-    out = [{"id": r["id"], "subject": r["subject"], "body": r["body"],
+    from path_memory.recall_form import preview as _preview
+    # `body` is the recall FORM when there is one — what should be read — and
+    # the full text stays available as `full_body`. Injecting whichever 220
+    # characters came first was the old behaviour and it routinely delivered a
+    # memory's preamble while dropping the finding it existed to record.
+    out = [{"id": r["id"], "subject": r["subject"], "body": _preview(r),
+            "full_body": r["body"],
             "person": r["person"], "score": r["score"],
             "serendipity": r.get("serendipity", False)} for r in rows]
     if event_id and out:

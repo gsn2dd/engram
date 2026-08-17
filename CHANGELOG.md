@@ -11,6 +11,21 @@ because of use — was scored for the first time, against ground truth the ranke
 did not generate. It was failing.
 
 ### Added
+- **Recall form — lossless at rest, lossy on the way out** (`recall_form`
+  column, `path_memory/recall_form.py`). Recall never injected whole memories;
+  it injected `body[:220]`. Curated bodies average 767 characters and p90 is
+  2,256, so a typical memory arrived 90% missing with the cut made by POSITION
+  rather than importance — one real finding injected its date and a preamble
+  while the measured numbers it existed to record sat at character 2,100 and
+  never reached the context. A memory now carries a short form used ONLY for
+  injection. **The embedding stays on the full body**, so findability is
+  provably untouched — a memory is found exactly as often and ranked exactly as
+  high; only what gets shown changes. Supplied at write time via
+  `remember(recall_form=...)` when the writer knows what mattered, or written
+  offline by the dreaming pass, most-recalled-first. The length cap is enforced
+  in code, not requested in a prompt: asked for 400 characters the model
+  averaged 768 across the first 89 real memories, which would have made the
+  feature cost context rather than save it.
 - **Open loops — what was concluded and never done** (`open_loops`,
   `path_memory/open_loops.py`, `pm open` / `pm close`, MCP `open_loops` /
   `close_loop`). A brain that records diagnoses but cannot say which were acted

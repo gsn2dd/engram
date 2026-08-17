@@ -62,6 +62,24 @@ ALTER TABLE memories ADD COLUMN IF NOT EXISTS content_hash      text;
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS redaction_version text;
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS metadata_json     jsonb;
 
+-- RECALL FORM — lossless at rest, lossy on the way out.
+--
+-- Storage is not the scarce resource. Measured on a real 4,166-memory brain:
+-- 115MB total, of which all the prose ever written is 5MB — 8%. The vectors and
+-- their HNSW indexes are three times that. The scarce resource is the CONTEXT
+-- WINDOW, and recall was already compressing for it in the worst possible way:
+-- the injected preview was `body[:220]`, so a p90 memory (2,256 chars) lost 90%
+-- of itself and kept whichever 220 characters happened to come first. On a real
+-- finding, the preview was the date and a preamble while the measured numbers
+-- that were the entire point sat at character 2,100 and never reached anyone.
+--
+-- So: keep the full body AND its full-body embedding — findability is provably
+-- untouched, because the vector never changes — and add a short form used ONLY
+-- for injection. The failure mode left is "the short form dropped something",
+-- and the original is right there to recover from, which is the whole reason
+-- not to compress the archive instead.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS recall_form text;
+
 -- Ingest idempotency. The extension re-posts on retry and rescans pages, so
 -- the same exchange genuinely arrives twice. A unique index makes the DATABASE
 -- refuse the duplicate: a pre-flight SELECT loses that race every time,

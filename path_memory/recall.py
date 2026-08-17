@@ -413,7 +413,7 @@ def recall(
                    weight, access_count, success_count, fail_count,
                    last_accessed, created_at,
                    temporal_anchor_start, temporal_anchor_end, superseded_by,
-                   derived_from
+                   derived_from, recall_form
             FROM memories
             WHERE {where}
             ORDER BY embedding <=> '{vec_str}'::vector
@@ -439,7 +439,7 @@ def recall(
                            m.weight, m.access_count, m.success_count, m.fail_count,
                            m.last_accessed, m.created_at,
                            m.temporal_anchor_start, m.temporal_anchor_end, m.superseded_by,
-                           m.derived_from
+                           m.derived_from, m.recall_form
                     FROM memory_perspectives mp JOIN memories m ON m.id = mp.memory_id
                     WHERE {p_where}{lens_filter}
                     ORDER BY mp.embedding <=> '{vec_str}'::vector
@@ -535,6 +535,9 @@ def recall(
             "temporal_status": status,
             "superseded_by":  row[18],
             "derived_from":   row[19],
+            # Lossless at rest, lossy on the way out: the body is whole, this is
+            # what a caller should SHOW. See path_memory/recall_form.py.
+            "recall_form":    row[20],
         })
 
     # Re-rank by composite score

@@ -80,6 +80,11 @@ def _temporal_hint(node: Dict[str, Any]) -> str:
     return _TEMPORAL_HINT.get(node.get("temporal_status"), "")
 
 
+def _preview(node):
+    from .recall_form import preview
+    return preview(node)
+
+
 def format_for_prompt(nodes: List[Dict[str, Any]]) -> str:
     """
     Format ranked observation nodes into clearly labelled blocks

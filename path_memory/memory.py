@@ -60,6 +60,7 @@ class Memory:
         redact: bool = True,
         classify: bool = False,
         active_project: Optional[str] = None,
+        recall_form: Optional[str] = None,
     ) -> int:
         """
         temporal_anchor_start/end: set these when the claim's correct tense
@@ -121,9 +122,9 @@ class Memory:
                     source_links, origin, embedding, embedding_model, project,
                     expires_at, temporal_anchor_start, temporal_anchor_end,
                     tier, contributor, source_system, session_id, exchange_id,
-                    source_uri, redaction_version)
+                    source_uri, redaction_version, recall_form)
                VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::vector,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s)
+                       %s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (node_key) DO UPDATE SET
                    body                   = EXCLUDED.body,
                    source_links           = EXCLUDED.source_links,
@@ -139,7 +140,7 @@ class Memory:
              nkey, links, origin, vec_str, model, project, expires_at,
              temporal_anchor_start, temporal_anchor_end,
              tier, contributor, source_system, session_id, exchange_id,
-             source_uri, redaction_version),
+             source_uri, redaction_version, recall_form),
         )
         memory_id = cur.fetchone()[0]
 
