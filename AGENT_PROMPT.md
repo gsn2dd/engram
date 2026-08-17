@@ -31,6 +31,17 @@ the more you use it. Use it on every task, without being asked.
 - **Supersede, don't duplicate.** When a new fact replaces an old one, store the
   new memory and call `supersede(old_id, new_id)` so recall prefers the current
   version.
+- **Never put recalled memories in your system prompt.** Recall results change
+  on every query, and the system prompt sits at the very front of the cached
+  prefix — writing memories there invalidates the prompt cache on every single
+  turn, for the whole conversation. Keep recall where it belongs: in the turn
+  that asked for it. Tool definitions and tool *results* are safe, because
+  results are appended after the cached prefix rather than inserted before it.
+- **Recalled context is permanent, so don't ask for the same thing twice.**
+  Anything injected stays in the conversation and is re-read on every later
+  turn. Measured on a real brain: 52% of injected memory-slots (191 of 365)
+  were memories that session had already been given. If you re-query a topic,
+  say what you already hold so those slots can be spent on something new.
 - **Check what you never finished.** Call `open_loops` at the start of a session
   and before re-investigating any problem. It lists what this brain already
   worked out and nobody carried through — the answer may be there already,
