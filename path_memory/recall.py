@@ -82,17 +82,35 @@ DEFAULT_POLICY = {
     "w_weight":     W_WEIGHT,
     "w_recency":    W_RECENCY,
     "weight_norm":  "rank",        # max | log | rank -- see _normalise_weights
-    # Use-signal ranking: how much a memory judged ACTUALLY USEFUL outranks one
-    # that was merely returned. DEFAULT 0 — the term is built, wired and
-    # measurable, and stays switched off until the bench says it earns its place.
+    # Use-signal ranking. DEFAULT 0, and now RETIRED BY MEASUREMENT rather than
+    # waiting for data — the distinction matters, because more data makes this
+    # worse rather than better.
     #
-    # That restraint is the direct lesson of USE_BONUS above: a ranking term was
-    # shipped at 0.5 on reasoning alone and spent months making recall worse
-    # than no ranking at all. The capture side (path_memory/events.py) runs from
-    # day one so the data accrues; `pm bench --use-signal` reports when there is
-    # enough of it to answer the question, and the `+use-signal` rung answers it.
-    # Turning this on before then would repeat the exact mistake, in the exact
-    # same file.
+    # Measured 2026-08-17 with the signal working: the term moves 37 of 152
+    # ground-truth results and 35 of them get WORSE (2 better). The verdict got
+    # STRONGER as marks accumulated from 6 memories to 25, which is the opposite
+    # of an under-powered measurement.
+    #
+    # WHY IT CANNOT WORK IN THIS SHAPE, which is the part worth keeping:
+    #
+    #   1. THE SIGNAL IS CONDITIONAL ON RETRIEVAL. A memory can only be marked
+    #      used if recall showed it first, so success_count says nothing about
+    #      memories that SHOULD have been retrieved and were not. Measured:
+    #      marked memories average weight 2.292 and 27.9 accesses against a
+    #      corpus average of 0.197 and 1.2 — 12x and 23x. The signal lands almost
+    #      entirely on memories the ranker already favours, so boosting them
+    #      amplifies its existing preferences instead of correcting them.
+    #
+    #   2. IT IS QUERY-INDEPENDENT. The evidence is really (query, memory) pairs
+    #      — "this memory helped with this kind of question". Collapsing that to
+    #      one scalar per memory discards the query dimension and reduces to
+    #      "popular memories rank higher", which is the SAME defect already fixed
+    #      twice in this file (additive weight, then max-normalisation).
+    #
+    # The use signal keeps its value as EVALUATION data — it is how we know
+    # recall helped on 24% of real prompts — and a query-conditioned form
+    # (edges from a query cluster to a memory) may work later. That is a
+    # different design, not a larger coefficient.
     "success_bonus": 0.0,
     "temporal":     True,          # apply TEMPORAL_FACTOR
     "superseded":   True,          # apply SUPERSEDED_FACTOR

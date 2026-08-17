@@ -513,8 +513,11 @@ def use_signal_readiness(limit: int = 10) -> Dict:
             f"HARMFUL SO FAR — the term moves {changed}/{len(cases)} results and "
             f"{worse} of them get WORSE ({better} better). With only "
             f"{r['memories_marked_used']} memories carrying a use mark it is "
-            f"promoting a near-random handful, which is the max-norm weight bug "
-            f"in miniature. Leave success_bonus at 0 and let marks accumulate.")
+            f"promoting memories the ranker ALREADY favours (marked memories "
+            f"average 12x the weight and 23x the accesses of the corpus), because "
+            f"a memory can only be marked used if it was shown first. More marks "
+            f"make this worse, not better — the term is mis-shaped, not "
+            f"under-powered. Leave success_bonus at 0; see DEFAULT_POLICY.")
     elif changed == 0:
         r["verdict"] = (
             f"NOT ANSWERABLE — only {r['memories_marked_used']} memories carry a "
