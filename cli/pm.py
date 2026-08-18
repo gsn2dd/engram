@@ -114,6 +114,21 @@ def cmd_demo(args):
     raise SystemExit(subprocess.call(argv))
 
 
+def cmd_demo_theatre(args):
+    """The larger demo: what engram does that a vector store cannot.
+
+    `pm demo` proves recall works. This one shows the three behaviours a top-k
+    index structurally does not have — collapse, supersession and live temporal
+    re-tensing — on a 213-memory corpus in a domain engram was never tuned on.
+    """
+    import subprocess, os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    argv = [sys.executable, os.path.join(root, "demo_theatre.py")]
+    if args.verify:
+        argv.append("--verify")
+    raise SystemExit(subprocess.call(argv))
+
+
 def cmd_dream(args):
     """Run one dreaming pass: age doorways, read new memories for subjects,
     back-fill them, summarise. Bounded; safe on a timer."""
@@ -135,6 +150,7 @@ pa = sub.add_parser("paths");    pa.add_argument("entity")
 ts = sub.add_parser("temporal-sweep"); ts.add_argument("--limit", type=int, default=50)
 fp = sub.add_parser("forget-project"); fp.add_argument("project"); fp.add_argument("--yes", action="store_true")
 dm = sub.add_parser("demo"); dm.add_argument("--verify", action="store_true")
+dt = sub.add_parser("demo-theatre"); dt.add_argument("--verify", action="store_true")
 dr = sub.add_parser("dream"); dr.add_argument("--project"); dr.add_argument("--budget", type=int, default=12)
 bn = sub.add_parser("bench"); bn.add_argument("--health", action="store_true")
 bn.add_argument("--use-signal", dest="use_signal", action="store_true")
@@ -198,7 +214,7 @@ def main():
     {
         "save": cmd_save, "recall": cmd_recall, "decay": cmd_decay, "paths": cmd_paths,
         "consolidate": cmd_consolidate, "temporal-sweep": cmd_temporal_sweep,
-        "forget-project": cmd_forget_project, "dream": cmd_dream, "demo": cmd_demo,
+        "forget-project": cmd_forget_project, "dream": cmd_dream, "demo": cmd_demo, "demo-theatre": cmd_demo_theatre,
         "bench": cmd_bench, "open": cmd_open, "close": cmd_close,
     }.get(args.cmd, lambda _: p.print_help())(args)
 

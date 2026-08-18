@@ -140,6 +140,31 @@ $( [ "$EMBED" = set ] && echo "
 
     docker exec engram python3 cli/pm.py forget-project tidewell --yes
 
+  ── 4b. SEE WHAT A VECTOR STORE CANNOT DO ──────────────────────────────────
+
+  The demo above proves recall works. This one is the more useful test, because
+  finding relevant text is something a plain vector store also does well:
+
+    docker exec engram python3 cli/pm.py demo-theatre --verify
+
+  213 memories from a fictional theatre — a domain engram was never tuned on —
+  demonstrating three things a top-k index structurally cannot have:
+
+    COLLAPSE      asks "how many answers are there?" instead of "give me five".
+                  Some questions come back with three results, some with two,
+                  and some with all five — because sometimes all five really
+                  are relevant.
+    SUPERSESSION  asks "is this still true?". Five facts in that brain CHANGED
+                  (bar hours, a funding award, a tour venue, ticket prices).
+                  Both versions stay stored; the current one ranks first and
+                  the old one stays auditable and flagged.
+    TEMPORAL      reads a dated memory as past, current or upcoming judged
+                  against TODAY, not against how the sentence was written.
+
+  It prints what it does NOT show, too. Remove it with:
+
+    docker exec engram python3 cli/pm.py forget-project harrowgate --yes
+
   ── 5. ASK THE BRAIN ABOUT ITSELF ──────────────────────────────────────────
 
   It ships knowing how it works, so recall is also the tutorial:
@@ -158,6 +183,7 @@ $( [ "$EMBED" = set ] && echo "
     journalctl -u engram -f                  logs
     sudo systemctl restart engram            restart after a config change
     docker exec engram python3 cli/pm.py demo --verify   demo + self-test
+    docker exec engram python3 cli/pm.py demo-theatre --verify   the big demo
     docker exec engram python3 cli/pm.py dream           run consolidation by hand
 
   Issues, questions and what-broke reports: github.com/gsn2dd/engram
