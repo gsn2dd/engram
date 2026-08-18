@@ -23,6 +23,7 @@ by a different model unless the operator explicitly overrides it.
 import functools
 import json
 import os
+import sys as _sys
 import urllib.request
 from typing import Optional
 
@@ -55,9 +56,30 @@ def resolve_provider() -> str:
         raise EmbeddingError(
             f"ENGRAM_EMBED_PROVIDER={PROVIDER!r} is not one of: auto, gemini, openai"
         )
+    # SAY WHICH PROVIDER WAS CHOSEN, AND WHY, BEFORE THE FIRST CALL.
+    #
+    # `auto` picks whichever key it finds. When only one is present that is a
+    # silent decision, and if that key is stale the operator gets an
+    # authentication failure from a vendor they did not know they were using.
+    # Observed on this project: a container with no GEMINI_API_KEY and a dead
+    # OPENAI_API_KEY answered every write with a 401 from OpenAI, and the first
+    # hypothesis was "Gemini is failing inside the process" — which it was not,
+    # because Gemini was never selected. One line of stderr at selection time
+    # is the difference between that hunt and reading the answer.
+    #
+    # Printed once: resolve_provider is lru_cached, so this fires on first use
+    # per process and never chatters.
     if _gemini_key():
+        if PROVIDER == "auto":
+            print(f"[engram] embedding provider: gemini ({GEMINI_MODEL}) "
+                  f"— auto-selected from GEMINI_API_KEY", file=_sys.stderr)
         return "gemini"
     if _openai_key():
+        if PROVIDER == "auto":
+            print(f"[engram] embedding provider: openai ({OPENAI_MODEL}) "
+                  f"— auto-selected because no GEMINI_API_KEY is set. If you "
+                  f"meant to use Gemini, this is why writes are going to OpenAI.",
+                  file=_sys.stderr)
         return "openai"
     raise EmbeddingError(
         "No embedding provider available. Set GEMINI_API_KEY or OPENAI_API_KEY "
@@ -119,11 +141,31 @@ def _embed_openai(texts):
 
 
 def embed(texts) -> list:
+    """Embed one or more texts with the resolved provider.
+
+    A FAILURE NAMES THE PROVIDER AND HOW IT WAS CHOSEN. Without that, a stale
+    key produces a bare authentication error from a vendor the operator may not
+    have realised was in play — the raw urllib/openai exception says nothing
+    about engram's selection. Diagnosing one of these cost a session's
+    investigation that started from the wrong hypothesis entirely, so the
+    context is attached to the exception rather than left in a log the reader
+    may not have.
+    """
     if isinstance(texts, str):
         texts = [texts]
-    if resolve_provider() == "gemini":
-        return _embed_gemini(texts)
-    return _embed_openai(texts)
+    provider = resolve_provider()
+    try:
+        return _embed_gemini(texts) if provider == "gemini" else _embed_openai(texts)
+    except EmbeddingError:
+        raise
+    except Exception as exc:
+        how = ("pinned by ENGRAM_EMBED_PROVIDER" if PROVIDER != "auto"
+               else "auto-selected from the keys present in this environment")
+        raise EmbeddingError(
+            f"embedding failed via {provider} "
+            f"({GEMINI_MODEL if provider == 'gemini' else OPENAI_MODEL}, {how}): "
+            f"{exc.__class__.__name__}: {exc}"
+        ) from exc
 
 
 def embed_one(text: str) -> list:

@@ -23,6 +23,14 @@ have, all visible on a cold brain with no usage history:
   3. TEMPORAL      — should this be read as past, current or upcoming, judged
                      against today rather than against the wording?
 
+And with --warm, the one that normally takes months to appear:
+
+  4. ASSOCIATION   — what is linked by USE rather than by meaning. This needs a
+                     graph, and a graph needs someone to have used the brain, so
+                     --warm simulates a few weeks of work first and shows you the
+                     same query before and after. The work is simulated and
+                     visible in tests/bench/warm_graph.py; nothing is pre-baked.
+
 The corpus is a fictional 340-seat producing theatre — chosen to be unlike
 anything engram was tuned on, so what you see is not a home-ground advantage.
 """
@@ -213,13 +221,79 @@ def run(verify=False):
     return 0
 
 
+def show_association():
+    """Section 4: what a warm graph surfaces that similarity cannot.
+
+    Runs the query BEFORE warming, simulates work, then runs it again — so the
+    difference is visible rather than asserted. The alternative was shipping a
+    pre-warmed graph, which would show the same output while hiding the fact
+    that the warmth was manufactured. Showing the mechanism is the honest form.
+    """
+    from path_memory.db import get_conn
+    from path_memory.recall import recall
+    from path_memory.links import spreading_activate
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "tests", "bench"))
+    from warm_graph import warm, SESSIONS
+
+    probe = "what should I worry about before the funding deadline"
+    print("=" * 72)
+    print("4. ASSOCIATION — linked by USE, not by meaning")
+    print("=" * 72)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM path_edge_summary")
+    before_edges = cur.fetchone()[0]
+    cur.close()
+
+    hits = recall(probe, limit=5, increment_weight=False)
+    seed_ids = [h["id"] for h in hits]
+    cold = spreading_activate(conn, seed_ids=seed_ids[:1], limit=6)
+    print(f"\n  Query: {probe!r}")
+    print(f"  Graph edges right now: {before_edges}")
+    print(f"  Linked by use: {len(cold)}  <- nothing, because nobody has used this brain yet\n")
+
+    print(f"  Simulating work: {len(SESSIONS)} jobs someone here would actually do")
+    print("  (preparing the funding submission, chasing the insurance claim,")
+    print("   casting the winter show, sorting the bar, planning the tour...)\n")
+    r = warm(rounds=3, verbose=False)
+    print(f"  {r['queries']} queries later: {r['edges']} edges, "
+          f"{r['warm_memories']} memories now carry weight\n")
+
+    hits = recall(probe, limit=5, increment_weight=False)
+    ids = [h["id"] for h in hits]
+    act = [a for a in spreading_activate(conn, seed_ids=ids[:1], limit=8)
+           if a["id"] not in ids]
+    print("  Same query. Similarity still returns:")
+    for h in hits[:3]:
+        print(f"     [{h['id']}] {h['subject'][:58]}")
+    print("\n  And the use-built graph now ALSO surfaces:")
+    for a in act[:4]:
+        print(f"     [{a['id']}] activation {a['activation']:.3f}  {a['subject'][:52]}")
+    print("\n  Those are not near-matches for the question. They are what someone")
+    print("  doing this job kept needing at the same time. No amount of embedding")
+    print("  similarity finds them, because they are not similar — they are USED")
+    print("  together. On a real brain this accrues from your work, not a script.")
+    conn.close()
+    return len(act) > 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verify", action="store_true",
                     help="exit non-zero if any demonstration does not behave as documented")
+    ap.add_argument("--warm", action="store_true",
+                    help="also simulate use and demonstrate the use-built association graph "
+                         "(takes about a minute, and permanently warms this demo brain)")
     args = ap.parse_args()
     seed()
-    raise SystemExit(run(verify=args.verify))
+    rc = run(verify=args.verify)
+    if args.warm:
+        print()
+        if not show_association():
+            print("  (no associations formed — warming did not take)")
+            rc = rc or 1
+    raise SystemExit(rc)
 
 
 if __name__ == "__main__":
