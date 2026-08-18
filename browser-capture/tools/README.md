@@ -12,10 +12,11 @@ checkable, and repeatable.
 
 ## Where this can run
 
-**Not on the EC2 box.** No Chrome in the AL2023 repos, host Python is 3.9, and —
-the real blocker — every check below needs a browser **already logged in** to
-claude.ai or chatgpt.com. Session cookies for those accounts should not live on a
-server that hosts public websites. Run it on the machine you actually browse from.
+**Not on a headless server.** Every check below needs a browser **already logged
+in** to claude.ai or chatgpt.com, and session cookies for those accounts should
+not live on a shared or public-facing machine. Run it on the computer you
+actually browse from. (A server may also lack Chrome and a new enough Python;
+chrome-agent needs >= 3.11.)
 
 ## 1. Are the selectors still alive?
 
@@ -73,6 +74,10 @@ script can read, with no changes to the extension.
 ## Why observe rather than assert
 
 `Network.requestWillBeSent` firing at the ingest URL is the only evidence the
-capture pipeline ran. The extension returning without an error is not evidence —
-that is exactly how bugs 1 and 2 in mindspace 3090 hid. See mindspace 4456/4457
-for the method and the tool, 4453 for why the deterministic checker is the point.
+capture pipeline ran. The extension returning without an error is not evidence of
+anything: a silent no-op and a success look identical from the calling side. Both
+of the capture bugs fixed in 0.1.8 hid in exactly that gap.
+
+The general rule, worth applying beyond this extension: **never trust an action's
+return value — trust the next observation, made through a different channel than
+the one you acted on.**

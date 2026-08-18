@@ -5,9 +5,9 @@
 #   capture.js says its per-host selectors are "the ONLY thing you should need to
 #   tune" -- but claude.ai and chatgpt.com change their DOM without notice, and a
 #   dead selector fails SILENTLY: the extension captures nothing and reports no
-#   error. That is the failure shape this whole toolchain exists to catch
-#   (mindspace 4456: "an action that succeeded with no error can still have done
-#   nothing; only an observed effect proves it").
+#   error. That is the failure shape this tooling exists to catch: an action that
+#   "succeeded" with no error can still have done nothing -- only an observed
+#   effect proves it.
 #
 # REQUIREMENTS
 #   - chrome-agent  (uv tool install chrome-agent) -- needs Python >= 3.11
