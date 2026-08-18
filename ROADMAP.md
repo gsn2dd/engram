@@ -26,6 +26,47 @@ memories *go together in practice*.
 The features below all depend on that. They have little to measure on a cold
 brain, which is exactly why they're roadmap items, not shipped ones.
 
+## Update (0.5.1): a warm graph can now be manufactured — with one caveat that matters
+
+The framing above — *these experiments can only be tested against an aged brain,
+and we don't have one* — is now half wrong. `tests/bench/warm_graph.py` and
+`pm demo-theatre --warm` build an association graph on demand by replaying
+task-shaped work: sequences of queries authored as real jobs (preparing the
+funding submission, chasing the insurance claim), so memories co-recalled inside
+a task become linked. On the 213-memory theatre brain, 114 such queries lay down
+242 edges and 88 memories gain weight. The experiments below no longer have to
+*wait* — they can be built and run today.
+
+**What the harness proves, and what it does not.** Spreading activation over the
+manufactured graph works and is visibly different from similarity: a
+funding-deadline query reaches a newly-appointed chartered-accountant trustee it
+shares no words with — a memory cosine never returns. That is the mechanism, and
+it is real.
+
+But on the same brain, the harness did **not** reproduce the ranking win the
+association graph shows on the live mindspace corpus. Measured on the wikilink
+bench after warming:
+
+| | cold | warm |
+|---|---|---|
+| hit@1 | 0.276 | **0.310** |
+| hard-pair MRR | 0.149 | **0.130** |
+
+hit@1 improved; hard-pair MRR — the metric use-history helps most on mindspace
+(+45%) — got slightly *worse*. So a **simulated** warm graph is not
+interchangeable with a **real aged** one. The likely reasons are scale and
+authenticity: ~200 hand-simulated queries over 213 memories is not months of
+genuine work over thousands, and simulated co-recall may be systematically
+different from the real thing. That is itself a roadmap finding: **the open
+question is not just "does a warm graph help" but "how much of the benefit
+survives simulation" — because if none of it does, every experiment below still
+needs real user data, and the harness only tests the plumbing.**
+
+So the harness changes the status of the experiments from *blocked* to
+*runnable-but-not-conclusive*: it can prove a mechanism exists and can catch a
+regression in it, but it cannot yet stand in for the aged-brain evidence the
+open question really wants. Both are still needed.
+
 ## Planned experiments
 
 ### 1. Resolve-then-ridge recall
@@ -43,8 +84,16 @@ single nearest point.
 
 - **Hypothesis:** path-first recall beats nearest-neighbour — but **only once
   the graph is warm.**
-- **Measure:** same query, nearest-neighbour vs resolve-then-ridge, on an aged
-  brain. Does the ridge return the answer a human would call *most on-point*?
+- **Now buildable.** The warm-graph harness can produce the graph this needs, so
+  resolve-then-ridge can be *implemented and smoke-tested* today rather than
+  waiting for an aged brain. The `--warm` demo already shows spreading
+  activation surfacing use-linked memories similarity misses — the raw material
+  a ridge would walk.
+- **Measure:** same query, nearest-neighbour vs resolve-then-ridge, on **both** a
+  simulated-warm brain and, when available, a real aged one. The gap between the
+  two is itself the result — see the 0.5.1 caveat above. The synthetic run tells
+  you whether the mechanism is sound; only the real one tells you whether it
+  holds up over time.
 
 ### 2. Recall-distribution self-diagnostic
 
@@ -55,7 +104,10 @@ degrading, before a human notices. The shape of the boundary becomes a
 correction signal.
 
 - **Needs:** a long enough history to know what "healthy" looks like for a given
-  brain.
+  brain. The warm-graph harness can now establish a synthetic baseline to
+  degrade *against*, which the drift test needs — though "healthy" on a
+  manufactured graph and "healthy" on a real one may differ, per the 0.5.1
+  caveat.
 - **Measure:** does a deliberately-degraded brain (e.g. flooded with
   near-duplicate noise) show distribution drift the diagnostic catches?
 
