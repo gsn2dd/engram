@@ -13,6 +13,33 @@ of the CONSEQUENCE and its true answer is the CAUSE. "Why are the costumes going
 mouldy?" should return the memory about deferring the boiler replacement — a
 memory containing neither "costume" nor "mouldy".
 
+WHAT THIS QUESTION SET DOES AND DOES NOT DEMONSTRATE — read before quoting it.
+
+It does NOT show engram finding answers that share no words with the question.
+Inspecting the generated "hard" set: they share "ripon, print, works", "kestrel,
+tour", "elevation, market, street" with their answers. Keyword search would find
+those, let alone an embedding.
+
+That is not a generator failure, it is a contradiction I built into the design.
+The corpus generator is asked for links sharing a CONCRETE ANCHOR so the pair is
+findable at all; the question generator is then asked not to reuse the cause's
+distinctive words. But the anchor IS the shared vocabulary. A pair either has
+one — and is then findable by ordinary similarity — or it does not, and is
+unreachable by anything, which is what the first corpus produced (bench floored
+at MRR 0.006).
+
+The conclusion that matters for a shipped demo: on a COLD brain, engram's
+retrieval is good but not categorically different from a competent vector
+store. What IS different — spreading activation over use-built edges — requires
+a warm graph, which a freshly-seeded demo brain by definition does not have.
+A demo should therefore lead with what a cold brain can actually show that a
+top-k vector store cannot: collapse (three answers come back as three, not five
+padded), supersession, live temporal re-tensing, and project scoping.
+
+So these questions are honest as a FUNCTIONAL test — they verify recall works on
+an independent corpus, and they are the bench's ground truth. They are not a
+differentiator demo, and labelling them as one would be overclaiming.
+
 TIERED, because a demo needs to establish competence before it shows off:
   easy — the pair is semantically close; any decent vector search finds it.
          These prove the thing is working at all.

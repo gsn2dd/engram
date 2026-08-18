@@ -1,0 +1,210 @@
+[
+  {
+    "question": "Why were the off-site outreach workshops originally planned with only one facilitator?",
+    "answer_id": 126,
+    "answer_subject": "Market Town Community Chest awards \u00a35,000 for youth outreach in deprived wards",
+    "rank": 5,
+    "pair_cosine": 0.7518,
+    "tier": "hard"
+  },
+  {
+    "question": "Why is Denby & Sons even doing work on the Market Street elevation right now?",
+    "answer_id": 11,
+    "answer_subject": "Grade II listed fa\u00e7ade stonework needs repair on the Market Street elevation",
+    "rank": 3,
+    "pair_cosine": 0.7652,
+    "tier": "hard"
+  },
+  {
+    "question": "Why was there a trustee vacancy needing to be filled on the board?",
+    "answer_id": 15,
+    "answer_subject": "Trustee Margaret Iqbal resigns citing time pressures after eleven years on the board",
+    "rank": 1,
+    "pair_cosine": 0.7696,
+    "tier": "hard"
+  },
+  {
+    "question": "Why was Ripon Print Works handling this poster job in the first place?",
+    "answer_id": 147,
+    "answer_subject": "Season brochure printing contract switches to Ripon Print Works from Autumn",
+    "rank": 2,
+    "pair_cosine": 0.7901,
+    "tier": "hard"
+  },
+  {
+    "question": "Why was Skipton added to the Kestrel tour without checking the stage floor first?",
+    "answer_id": 131,
+    "answer_subject": "Winter Kestrel tour adds fourth venue at Skipton's Century Theatre",
+    "rank": 3,
+    "pair_cosine": 0.8089,
+    "tier": "hard"
+  },
+  {
+    "question": "Why was the south clerestory window being worked on when the lintel was found rotten?",
+    "answer_id": 185,
+    "answer_subject": "Grade II listed clerestory windows restoration begins with Hardy & Sons Glaziers",
+    "rank": 2,
+    "pair_cosine": 0.8099,
+    "tier": "hard"
+  },
+  {
+    "question": "Why is the Seagull's dress run schedule so tight before opening night?",
+    "answer_id": 169,
+    "answer_subject": "Guest director Tom Ainsley cast for autumn Seagull revival",
+    "rank": 4,
+    "pair_cosine": 0.8116,
+    "tier": "easy"
+  },
+  {
+    "question": "Why does Grace's schedule now overlap two commitments in the same December window?",
+    "answer_id": 37,
+    "answer_subject": "Resident actor Grace Oduya signs three-year company contract extension",
+    "rank": 3,
+    "pair_cosine": 0.8118,
+    "tier": "easy"
+  },
+  {
+    "question": "Why is the new chair suddenly pushing for a full building condition survey?",
+    "answer_id": 91,
+    "answer_subject": "Trustee Malcolm Webb elected board chair after Whitfield resignation",
+    "rank": 4,
+    "pair_cosine": 0.813,
+    "tier": "easy"
+  },
+  {
+    "question": "Why is the Green Room closed, forcing wardrobe fittings into Studio 2?",
+    "answer_id": 105,
+    "answer_subject": "Grade II listed Green Room ceiling survey uncovers dry rot damage",
+    "rank": 2,
+    "pair_cosine": 0.8159,
+    "tier": "easy"
+  },
+  {
+    "question": "Why is our ticketing overhaul even subject to a spending deadline that's now at risk?",
+    "answer_id": 107,
+    "answer_subject": "ACE Elevate award of \u00a318,000 secured for ticketing system overhaul",
+    "rank": 2,
+    "pair_cosine": 0.8243,
+    "tier": "easy"
+  },
+  {
+    "question": "Why is our insurer disputing the value of the recent scenery dock damage claim?",
+    "answer_id": 65,
+    "answer_subject": "November storm floods Coach House scenery dock loading bay",
+    "rank": 3,
+    "pair_cosine": 0.825,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did our new wine supplier's first delivery arrive too late for press night?",
+    "answer_id": 89,
+    "answer_subject": "Yorkshire Vineyard Co signed for new bar wine list supply",
+    "rank": 3,
+    "pair_cosine": 0.831,
+    "tier": "easy"
+  },
+  {
+    "question": "Why does Billy's rehearsal schedule leave so little time before press night?",
+    "answer_id": 121,
+    "answer_subject": "Winter production of A Kestrel for a Knave adapted by Ellen Braithwaite announced",
+    "rank": 2,
+    "pair_cosine": 0.8364,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did Arts Council England only partially fund our scaled-back scheme instead of full amount?",
+    "answer_id": 35,
+    "answer_subject": "Project grant application submitted for new outreach scheme Market Town Voices",
+    "rank": 5,
+    "pair_cosine": 0.8412,
+    "tier": "easy"
+  },
+  {
+    "question": "What originally caused the roof damage the insurer is now questioning?",
+    "answer_id": 165,
+    "answer_subject": "Coach House annex roof leak damages stored touring flats ahead of spring",
+    "rank": 2,
+    "pair_cosine": 0.8459,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did the Coach House Wing bar have to close for three weeks?",
+    "answer_id": 1,
+    "answer_subject": "Coach House Wing roof leak discovered above the bar ceiling",
+    "rank": 2,
+    "pair_cosine": 0.8483,
+    "tier": "easy"
+  },
+  {
+    "question": "Why is a freelancer covering sound and now pushing to replace the mixing desk?",
+    "answer_id": 162,
+    "answer_subject": "Sound engineer Dave Kirby departs after eleven years, freelance cover booked",
+    "rank": 1,
+    "pair_cosine": 0.8521,
+    "tier": "easy"
+  },
+  {
+    "question": "Why is there suddenly a capital bid to replace the Main House fire stairs?",
+    "answer_id": 153,
+    "answer_subject": "Rear fire escape stairs at Main House found badly corroded",
+    "rank": 2,
+    "pair_cosine": 0.8574,
+    "tier": "easy"
+  },
+  {
+    "question": "Why are customers suddenly complaining about an extra fee stacking with the price rise?",
+    "answer_id": 155,
+    "answer_subject": "Box office introduces \u00a31.50 online booking fee per transaction",
+    "rank": 2,
+    "pair_cosine": 0.8592,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did so many people turn out for this teen showcase's first sharing?",
+    "answer_id": 22,
+    "answer_subject": "Marcus Webb launches teen devising strand 'Untold Histories' in Studio 2",
+    "rank": 2,
+    "pair_cosine": 0.863,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did the Market Street stonework take so much longer and cost more than quoted?",
+    "answer_id": 12,
+    "answer_subject": "Stonemason contractor Denby & Sons delayed by autumn weather on the fa\u00e7ade job",
+    "rank": 1,
+    "pair_cosine": 0.8702,
+    "tier": "easy"
+  },
+  {
+    "question": "What sponsorship agreement terms led to this logo sizing dispute with our brewery partner?",
+    "answer_id": 97,
+    "answer_subject": "Dalesbrew Brewery signs \u00a33,000 season sponsorship for main brochure",
+    "rank": 2,
+    "pair_cosine": 0.8814,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did the tarpaulin over the roof tear loose and let water reach the lighting bar?",
+    "answer_id": 179,
+    "answer_subject": "February storm dislodges Main House roof slates, tarpaulin fitted over stage",
+    "rank": 2,
+    "pair_cosine": 0.8829,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did it take three weeks to fix the cellar fault delaying the kegs?",
+    "answer_id": 20,
+    "answer_subject": "Cellar adaptor problem delays Th'Real Ale Co. kegs going on tap",
+    "rank": 2,
+    "pair_cosine": 0.9007,
+    "tier": "easy"
+  },
+  {
+    "question": "Why did the costume store have to be moved out of dressing room 3?",
+    "answer_id": 33,
+    "answer_subject": "Damp discovered in Ellis Wing dressing room 3 during Tempest fittings",
+    "rank": 3,
+    "pair_cosine": 0.911,
+    "tier": "easy"
+  }
+]
