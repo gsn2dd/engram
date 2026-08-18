@@ -4,11 +4,18 @@ All notable changes to Engram are recorded here. Engram uses
 [semantic versioning](https://semver.org/); each version maps to a git tag and a
 published container image.
 
-## [Unreleased]
+## [0.5.0] — 2026-08-18
 
 The "measure the claim" release. Engram's distinctive bet — that recall improves
 because of use — was scored for the first time, against ground truth the ranker
 did not generate. It was failing.
+
+Everything below was measured before it was changed, and the measurements are
+mapped to their decisions in [`docs/WHAT_WE_MEASURED.md`](docs/WHAT_WE_MEASURED.md).
+Three things were deliberately NOT changed despite sounding like improvements —
+`success_bonus` stays at 0, and two of the three fan-out lenses are kept in the
+code though retired from use — because the evidence said so. What is honest
+about this release is as much what it declined to ship as what it shipped.
 
 ### Added
 - **Recall form — lossless at rest, lossy on the way out** (`recall_form`
@@ -54,6 +61,15 @@ did not generate. It was failing.
   accrues; `pm bench --use-signal` reports when there is enough to answer, and
   the `+use-signal` rung answers it. The term saturates rather than scaling
   linearly — the signal is "has this ever helped", not "how many times".
+- **A demo that shows what a vector store cannot do** (`pm demo-theatre
+  --verify`). 213 memories from a fictional theatre — a domain engram was never
+  tuned on — demonstrating collapse ("how many answers are there?" rather than
+  "give me five"), supersession ("is this still true?"), and temporal re-tensing
+  judged against today. It ships as DATA, not a generator, so every question in
+  it stays verified. It also prints what it does NOT show: on a cold brain
+  engram's retrieval is good but not categorically better than a competent
+  vector store, and the use-built association graph only appears after weeks of
+  real use.
 - **The recall bench** (`path_memory/bench.py`) — a policy ladder that fixes the
   corpus, query and embedding and varies exactly one thing: the ranking policy.
   Ground truth comes from `[[id]]` wikilinks between memories, the only
@@ -230,6 +246,7 @@ agent attaches to. 100% AI-coded (Claude), human-inspired (David Dand).
 - **Pre-loaded demo brain** (`ENGRAM_SEED_DEMO=1`) for an instant try-out, plus
   a container image and `docker-compose` quickstart.
 
+[0.5.0]: https://github.com/gsn2dd/engram/releases/tag/v0.5.0
 [0.3.0]: https://github.com/gsn2dd/engram/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gsn2dd/engram/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gsn2dd/engram/releases/tag/v0.1.0
