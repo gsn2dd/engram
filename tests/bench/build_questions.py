@@ -13,6 +13,26 @@ of the CONSEQUENCE and its true answer is the CAUSE. "Why are the costumes going
 mouldy?" should return the memory about deferring the boiler replacement — a
 memory containing neither "costume" nor "mouldy".
 
+THE PROMPT'S RULE IS NOW ENFORCED IN CODE, NOT ASKED FOR IN ENGLISH.
+
+The prompt says "do not reuse distinctive words from the cause". The model
+ignored it: the generated set included questions sharing "ripon, print, works"
+and "elevation, market, street" with their answers — questions that simply name
+the thing they are asking about. An instruction a model can quietly decline is
+a bug report against missing code, so the overlap is now COMPUTED and the
+degenerate cases REJECTED.
+
+The threshold was measured, not chosen. Over 26 generated questions the shared
+distinctive-word count ran median 1.5, mean 1.5, max 4; inspecting the tail,
+every question sharing 3 or more words was a restatement of the answer's own
+subject line. So 3 is the bar, and it rejected 4 of 26 (15%).
+
+AND THE TIER IS NOW MEASURED BY OVERLAP, NOT BY PAIR COSINE. The same
+measurement showed pair-cosine does not track difficulty: two "hard" pairs by
+cosine shared three words with their answers, while five "easy" pairs shared
+none. Overlap is the better predictor because overlap is what decides whether
+plain keyword search would find the answer — which is the thing being claimed.
+
 WHAT THIS QUESTION SET DOES AND DOES NOT DEMONSTRATE — read before quoting it.
 
 It does NOT show engram finding answers that share no words with the question.
@@ -27,6 +47,15 @@ distinctive words. But the anchor IS the shared vocabulary. A pair either has
 one — and is then findable by ordinary similarity — or it does not, and is
 unreachable by anything, which is what the first corpus produced (bench floored
 at MRR 0.006).
+
+WHAT THE ZERO-OVERLAP QUESTIONS DO AND DO NOT PROVE. After the gate, 4 of 58
+generated questions share no distinctive word at all with their answer, and
+engram finds those answers at ranks 1, 2, 5 and 5. That is real, and it is
+worth having — but it demonstrates that KEYWORD search would fail, not that a
+vector store would. Closing a lexical gap is exactly what an embedding does;
+any competent vector store would likely find them too. So this remains evidence
+that semantic beats lexical, which is table stakes, rather than evidence that
+engram beats RAG.
 
 The conclusion that matters for a shipped demo: on a COLD brain, engram's
 retrieval is good but not categorically different from a competent vector
@@ -57,6 +86,7 @@ import os
 import re
 import statistics
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -65,6 +95,43 @@ from path_memory.llm import complete_text
 from path_memory.recall import recall
 
 WIKILINK = re.compile(r"\[\[(\d+)\]\]")
+
+# Words too common to count as evidence that a question leans on its answer's
+# wording. Deliberately short: a long stopword list would quietly suppress real
+# overlap and flatter the result.
+STOPWORDS = {
+    "what", "when", "why", "how", "which", "this", "that", "been", "were",
+    "have", "has", "did", "does", "the", "and", "for", "was", "are", "our",
+    "its", "from", "with", "into", "them", "there", "their", "they", "who",
+    "only", "just", "even", "some", "suddenly", "originally", "actually",
+    "first", "before", "after", "still", "being", "then", "than", "over",
+}
+
+# A question sharing this many distinctive words with its answer is naming the
+# answer rather than asking about it. Measured over 26 generated questions:
+# median 1.5, mean 1.5, max 4, and every case at 3+ was a restatement of the
+# answer's subject line ("Ripon Print Works", "Market Street elevation").
+MAX_SHARED_WORDS = 3
+
+
+def distinctive(text):
+    """Content words — the ones whose presence in both question and answer
+    means keyword search would have found it without any embedding.
+
+    ACCENTS ARE FOLDED FIRST. The obvious pattern, [a-z']+, silently splits
+    "façade" into "fa" and "ade" — both below the length floor — so a question
+    asking about the "Market Street façade repair" scored ZERO overlap against
+    an answer about "the façade job". A checker that cannot see a word cannot
+    reject it, and this corpus is full of words that carry accents. Folding to
+    ASCII first costs nothing and closes a whole class of false negative.
+    """
+    folded = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode()
+    return {w for w in re.findall(r"[a-z']+", folded.lower())
+            if len(w) > 3 and w not in STOPWORDS}
+
+
+def shared_words(question, answer_subject):
+    return sorted(distinctive(question) & distinctive(answer_subject))
 
 PROMPT = """Two entries from a theatre's operational memory are connected: the
 second happened BECAUSE of the first.
@@ -129,7 +196,7 @@ def main():
     median = statistics.median(s[2] for s in scored)
     print(f"{len(scored)} linked pairs, median pair-cosine {median:.4f}")
 
-    out, kept, tried = [], 0, 0
+    out, kept, tried, rejected = [], 0, 0, 0
     for src, tgt, cos in sorted(scored, key=lambda s: s[2]):
         cur.execute("SELECT subject, body FROM memories WHERE id=%s", (tgt,))
         c_subj, c_body = cur.fetchone()
@@ -138,6 +205,13 @@ def main():
         q = make_question(f"{c_subj}\n{c_body[:700]}", f"{e_subj}\n{e_body[:700]}")
         tried += 1
         if not q:
+            continue
+        # ENFORCE the prompt's own rule. The model declines it often enough that
+        # asking is not a control.
+        shared = shared_words(q, c_subj)
+        if len(shared) >= MAX_SHARED_WORDS:
+            rejected += 1
+            print(f"  reject (names its answer: {','.join(shared)}) {q[:52]}", flush=True)
             continue
         # VERIFY on the real engine before keeping it.
         hits = recall(q, limit=args.limit, increment_weight=False)
@@ -148,7 +222,11 @@ def main():
                     "answer_subject": c_subj,
                     "rank": ids.index(tgt) + 1,
                     "pair_cosine": round(cos, 4),
-                    "tier": "hard" if cos < median else "easy"})
+                    # Recorded as DATA so nobody has to take the tier on trust.
+                    "shared_words": shared,
+                    # Measured, not inferred from cosine — see the module
+                    # docstring for why cosine turned out to be the wrong proxy.
+                    "tier": "no-overlap" if not shared else "partial-overlap"})
         kept += 1
         print(f"  [{kept}/{tried}] rank {ids.index(tgt)+1}  cos {cos:.3f}  {q[:64]}", flush=True)
         if kept >= 40:
@@ -158,9 +236,11 @@ def main():
     conn.close()
     with open(args.out, "w") as fh:
         json.dump(out, fh, indent=2)
-    hard = sum(1 for o in out if o["tier"] == "hard")
+    clean = sum(1 for o in out if o["tier"] == "no-overlap")
     print(f"\nkept {kept} verified questions of {tried} tried "
-          f"({hard} hard, {kept - hard} easy) -> {args.out}")
+          f"({rejected} rejected for naming their answer); "
+          f"{clean} share NO distinctive words with their answer, "
+          f"{kept - clean} share some -> {args.out}")
 
 
 if __name__ == "__main__":
