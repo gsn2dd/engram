@@ -4,6 +4,37 @@ All notable changes to Engram are recorded here. Engram uses
 [semantic versioning](https://semver.org/); each version maps to a git tag and a
 published container image.
 
+## [0.5.1] — 2026-08-18
+
+A small follow-up folding four commits made after the 0.5.0 tag into a published
+image — no behaviour change to the served engine, but the container was running
+0.5.0 code while `main` had moved on.
+
+### Added
+- **Graph-warming harness and the `--warm` demo** (`tests/bench/warm_graph.py`,
+  `pm demo-theatre --warm`). Engram's use-built association graph is inert on a
+  freshly-seeded brain, so the differentiator — memories linked by USE rather
+  than meaning — cannot be shown on a cold demo. `--warm` simulates a few weeks
+  of task-shaped work (queries authored as real jobs, independently of the
+  bench's ground truth) and shows the same query before and after: on the
+  theatre brain, 114 queries lay down 242 edges, and spreading activation then
+  surfaces memories cosine never returns (a funding-deadline query reaches the
+  newly-appointed chartered-accountant trustee). The warming is visible in the
+  harness; nothing is pre-baked.
+- **Question-generator overlap gate** (`tests/bench/build_questions.py`) — the
+  prompt's "do not reuse the answer's distinctive words" rule is now enforced in
+  code, with an ASCII-folding fix so accented words like "façade" are not
+  invisible to the checker.
+- **chrome-agent capture-testing tooling** (`browser-capture/tools/`).
+
+### Fixed
+- **Embedding selection and failures now name the provider** (`path_memory/embed.py`).
+  `auto` picking a vendor silently meant a stale key produced a bare 401 from a
+  provider the operator did not know was in play. Selection now announces itself
+  once per process, and a failure carries the provider, model and how it was
+  chosen. Diagnosability only — `assert_brain_compatible()` already prevented
+  any corruption.
+
 ## [0.5.0] — 2026-08-18
 
 The "measure the claim" release. Engram's distinctive bet — that recall improves
@@ -246,6 +277,7 @@ agent attaches to. 100% AI-coded (Claude), human-inspired (David Dand).
 - **Pre-loaded demo brain** (`ENGRAM_SEED_DEMO=1`) for an instant try-out, plus
   a container image and `docker-compose` quickstart.
 
+[0.5.1]: https://github.com/gsn2dd/engram/releases/tag/v0.5.1
 [0.5.0]: https://github.com/gsn2dd/engram/releases/tag/v0.5.0
 [0.3.0]: https://github.com/gsn2dd/engram/releases/tag/v0.3.0
 [0.2.0]: https://github.com/gsn2dd/engram/releases/tag/v0.2.0
