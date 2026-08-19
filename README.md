@@ -8,10 +8,25 @@
 > ⚠️ **Experimental — early days.** Engram works and is tested, but it has **not
 > been proven in long, real-world use.** The features that make it *useful*
 > (persistent, semantic, structured, attachable) are solid; the features that
-> make it *distinctive* (memory that improves with use and forgets cleanly over
-> time) are a **bet we're still testing** — see [Status](#status--and-an-honest-ask)
+> make it *distinctive* (memory that learns from use and forgets cleanly over
+> time) are a **bet we're still testing** — and where we've already tested one,
+> we say so plainly below — see [Status](#status--and-an-honest-ask)
 > and the [roadmap](ROADMAP.md). Run it, kick the tyres, tell us what breaks —
 > but don't trust it with anything you can't afford to have mis-remembered yet.
+
+---
+
+> **The honest headline.** On a cold brain, Engram's *retrieval* is about as good
+> as a strong vector store — **no better.** What it adds beyond retrieval is
+> structure an index can't express: memories filed under the questions they
+> answer, `collapse` that returns only the real answers, supersession, and live
+> temporal re-tensing. It also builds an **association graph** that surfaces
+> related context by use — but we **measured** whether that graph beats
+> similarity at *finding answers*, and on our test corpus it **does not**
+> ([`docs/WHAT_WE_MEASURED.md`](docs/WHAT_WE_MEASURED.md#association--the-use-built-graph-does-not-beat-similarity-on-retrieval)).
+> We publish the number instead of the pitch. The bet still worth watching is
+> whether recall *holds up over months of real use* — that we genuinely don't
+> know yet.
 
 ---
 
@@ -20,7 +35,7 @@
 **Engram** is an open-source memory *brain* for AI agents — not another vector store. You run it as a container, and your agent attaches to it as its persistent memory. It's built on a few ideas most "memory" libraries don't have:
 
 1. A memory is stored **under the questions it answers**, not just its own wording — so a question finds it even with no words in common. (Measured: +13% hit@1 on direct lookup. Two further lenses — its themes and its aliases — were built on the same reasoning and *retired*, because measurement found them inert. See [`docs/RECALL_MEASUREMENT.md`](docs/RECALL_MEASUREMENT.md); `ENGRAM_LENSES` re-enables them.)
-2. The act of retrieving knowledge **changes** the knowledge — connection weights between memories emerge from retrieval history, not from training data, and spreading activation surfaces what's linked *by use*, not just by meaning.
+2. The act of retrieving knowledge **changes** the knowledge — connection weights between memories emerge from retrieval history, not from training data, and spreading activation surfaces related context linked *by use*. (Honest caveat: we measured whether that association graph *out-retrieves* similarity, and on our test corpus it doesn't — it adds context, not better answers. See [`docs/WHAT_WE_MEASURED.md`](docs/WHAT_WE_MEASURED.md#association--the-use-built-graph-does-not-beat-similarity-on-retrieval).)
 3. Structured knowledge can be folded into a seed — a compact, weighted, semantically-indexed object an agent can consume directly.
 
 It ships as two components:
@@ -456,7 +471,8 @@ The weights that emerge from your usage are yours.
 Active development, and **genuinely experimental.** The core works, but Engram has **not yet been tested in long trials.** To be straight about where the line falls:
 
 - **Proven today** (tested / true by construction): memory persists across sessions outside the model; semantic recall finds things with no shared words; `collapse` returns only the relevant matches; JSON fold/unfold round-trips; project scoping, supersede, and temporal anchoring all behave as described; it attaches by MCP with no glue code, and it's open and fully inspectable.
-- **Hoped-for — still a bet** (designed-for, *not* yet proven): that recall *gets better the more it's used*, that the brain *forgets cleanly* over weeks and months, and that recall stays sharp as it grows to thousands of memories. These are the claims that make Engram different from a plain vector store — and they're exactly what we haven't proven yet.
+- **Measured, and it fell short** (built, wired, tested, reported): the association graph — spreading activation over use-built edges — does **not** beat similarity at retrieval on our test corpus. We expected it to recover answers cosine misses; measured, the lift is small and not significant, and the reason is structural (use is organised by topic, so a graph built from use largely restates similarity). It still surfaces useful *related context*, but it is not a better *retriever*. Full numbers and method in [`docs/WHAT_WE_MEASURED.md`](docs/WHAT_WE_MEASURED.md#association--the-use-built-graph-does-not-beat-similarity-on-retrieval). This is the same discipline that retired the use-signal ranking term — we report what measurement says, not what we hoped.
+- **Hoped-for — still a genuine bet** (designed-for, *not* yet proven): that the brain *forgets cleanly* over weeks and months, and that recall stays sharp as it grows to thousands of memories. These are the long-horizon claims we haven't been able to test yet — and the ones we most want help with.
 
 So the open question we most want help with:
 
