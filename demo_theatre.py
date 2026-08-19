@@ -271,9 +271,12 @@ def show_association():
     for a in act[:4]:
         print(f"     [{a['id']}] activation {a['activation']:.3f}  {a['subject'][:52]}")
     print("\n  Those are not near-matches for the question. They are what someone")
-    print("  doing this job kept needing at the same time. No amount of embedding")
-    print("  similarity finds them, because they are not similar — they are USED")
-    print("  together. On a real brain this accrues from your work, not a script.")
+    print("  doing this job kept needing at the same time — surfaced by use, not")
+    print("  by meaning. This is complementary context, not a retrieval win: we")
+    print("  MEASURED whether use-built edges beat similarity at finding answers")
+    print("  (tests/bench/assoc_bench.py) and on a corpus like this they do not.")
+    print("  What the graph adds is the association itself, which accrues from")
+    print("  your real work, not a script.")
     conn.close()
     return len(act) > 0
 

@@ -136,6 +136,53 @@ the same as disproven. `ENGRAM_LENSES=all` restores it.
 
 ---
 
+## Association — the use-built graph does not beat similarity on retrieval
+
+This is the claim engram rests on, so it gets the harshest test: memories
+recalled together lay down edges, and spreading activation later surfaces what
+is linked *by use* even when it is far away in embedding space — the thing a
+vector store structurally cannot do. `tests/bench/assoc_bench.py` measures it
+non-circularly, and the answer is **no, not measurably, on this corpus.**
+
+**The test.** Ground truth is the theatre corpus's own causal `[[N]]`
+wikilinks — "the roof leak caused the closure that cut the bar takings" —
+authored by the corpus generator, independent of anything the bench warms on.
+The graph is warmed by `warm_graph`'s eight work-sessions, authored *without
+reference to those links*. So a causal pair can only be helped if real
+simulated work happened to co-recall both ends: no plant, and coverage is
+reported as its own number rather than folded into a hit rate.
+
+**The result**, on the 29 FAR pairs (cosine below median — where similarity is
+weakest and association should earn its keep): cosine-only hit@10 = **9/29**;
+adding spreading activation = **11/29**. A lift of two, **not significant**
+(paired bootstrap P(lift≤0) ≈ 0.12), and it costs **~7 extra memories injected
+per query**. On NEAR pairs the graph adds nothing (28/29 either way).
+
+**Why, measured three ways.** The binding constraint is *coverage*: only
+**2–7 of 58** causal pairs ever got a use-built edge. Widening the warming
+window 5→15 exploded the edge count 152→901 but did **not** lift recall —
+more edges, more noise, same two recoveries. Switching the edge rule from
+production's within-query co-recall (`recall.py`: `zip(real_ids,
+real_ids[1:])`) to an experimental **cross-session** rule did not help either
+(9→10, fewer edges). The reason is structural and rule-independent: **co-recall
+is organised by topic, and the causal pairs deliberately cross topics.** The
+roof-leak lives in the building job, the bar-takings in the bar job — different
+sessions, never co-recalled. Use recapitulates similarity, so the graph built
+from use recapitulates similarity, and the pairs that would most benefit from a
+non-similarity link are exactly the ones no realistic use co-locates.
+
+**What this does and does not retire.** It does not delete spreading activation:
+the demo (`demo_theatre.py --warm`) shows it surfacing genuinely associated
+context, which has qualitative value. It retires the *quantitative* claim —
+"linked-by-use retrieval beats similarity" is **not** supported by measurement
+here, and the docs and demo must not assert it. Like `success_bonus`, a
+believed-in mechanism was built, measured, and found not to earn a ranking role
+on the evidence available. If it is ever to beat cosine, the edge would have to
+come from something other than similarity-ranked co-recall — a direction, not a
+result.
+
+---
+
 ## Injection — what actually reaches the context
 
 ### `recall_form`, cap enforced at 400 characters
