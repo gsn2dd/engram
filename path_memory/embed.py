@@ -5,8 +5,13 @@ A memory brain that hard-requires one embedding vendor is not portable, and
 portability is the whole promise — the brain is supposed to outlive the agent,
 the model, and the vendor. So the provider is selectable.
 
-    ENGRAM_EMBED_PROVIDER = auto (default) | gemini | openai
-    ENGRAM_EMBED_DIM      = 768 (default)
+    ENGRAM_EMBED_PROVIDER = auto (default) | gemini | openai | bedrock
+    ENGRAM_EMBED_DIM      = 768 (default; 1024 for bedrock)
+
+bedrock = Amazon Titan Text Embeddings V2 through AWS Bedrock, using the
+instance's own AWS credentials (no API key to leak or expire). Titan offers
+256/512/1024 dimensions, not 768, so a bedrock brain is 1024-dim: switching a
+brain to it means changing the vector columns and re-embedding everything.
 
 Both providers are pinned to the same dimensionality so the column type stays
 fixed, but note the thing that actually matters:
@@ -29,9 +34,11 @@ from typing import Optional
 
 GEMINI_MODEL = "gemini-embedding-001"
 OPENAI_MODEL = "text-embedding-3-small"
+BEDROCK_MODEL = "amazon.titan-embed-text-v2:0"
+BEDROCK_REGION = os.environ.get("ENGRAM_BEDROCK_REGION") or os.environ.get("AWS_REGION") or "eu-west-1"
 
-DIM = int(os.environ.get("ENGRAM_EMBED_DIM", "768"))
 PROVIDER = os.environ.get("ENGRAM_EMBED_PROVIDER", "auto").strip().lower()
+DIM = int(os.environ.get("ENGRAM_EMBED_DIM") or (1024 if PROVIDER == "bedrock" else 768))
 ALLOW_MIXED = os.environ.get("ENGRAM_EMBED_ALLOW_MIXED", "").lower() in ("1", "true", "yes")
 
 
@@ -50,11 +57,11 @@ def _openai_key():
 @functools.lru_cache(maxsize=1)
 def resolve_provider() -> str:
     """Which provider this process will use. Cached: it must not drift mid-run."""
-    if PROVIDER in ("gemini", "openai"):
+    if PROVIDER in ("gemini", "openai", "bedrock"):
         return PROVIDER
     if PROVIDER != "auto":
         raise EmbeddingError(
-            f"ENGRAM_EMBED_PROVIDER={PROVIDER!r} is not one of: auto, gemini, openai"
+            f"ENGRAM_EMBED_PROVIDER={PROVIDER!r} is not one of: auto, gemini, openai, bedrock"
         )
     # SAY WHICH PROVIDER WAS CHOSEN, AND WHY, BEFORE THE FIRST CALL.
     #
@@ -87,9 +94,12 @@ def resolve_provider() -> str:
     )
 
 
+_MODELS = {"gemini": GEMINI_MODEL, "openai": OPENAI_MODEL, "bedrock": BEDROCK_MODEL}
+
+
 def active_model() -> str:
     """The model id to stamp on rows written by this process."""
-    return GEMINI_MODEL if resolve_provider() == "gemini" else OPENAI_MODEL
+    return _MODELS[resolve_provider()]
 
 
 def provider_ready() -> bool:
@@ -105,6 +115,12 @@ def provider_ready() -> bool:
         provider = resolve_provider()
     except EmbeddingError:
         return False
+    if provider == "bedrock":
+        try:
+            import boto3
+            return boto3.Session().get_credentials() is not None
+        except Exception:
+            return False
     return bool(_gemini_key() if provider == "gemini" else _openai_key())
 
 
@@ -140,6 +156,40 @@ def _embed_openai(texts):
     return [item.embedding for item in response.data]
 
 
+@functools.lru_cache(maxsize=1)
+def _bedrock_client():
+    import boto3
+    return boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
+
+
+def _embed_bedrock(texts):
+    if DIM not in (256, 512, 1024):
+        raise EmbeddingError(f"bedrock (Titan V2) supports 256/512/1024 dims, not {DIM}")
+    out = []
+    for text in texts:
+        # Titan V2 takes up to 8k tokens; 40k characters keeps well inside it.
+        text = (text or " ")[:40000]
+        while True:
+            body = json.dumps({"inputText": text, "dimensions": DIM, "normalize": True})
+            try:
+                resp = _bedrock_client().invoke_model(modelId=BEDROCK_MODEL, body=body)
+                break
+            except Exception as exc:
+                # Titan caps input at 8192 tokens; dense text (code, JSON) can pass
+                # the character cut and still be too long. Shorten and retry.
+                if "Too many input tokens" not in str(exc) or len(text) < 2000:
+                    raise
+                text = text[: int(len(text) * 0.8)]
+        values = json.loads(resp["body"].read()).get("embedding")
+        if not values or len(values) != DIM:
+            raise EmbeddingError(f"bedrock returned an unusable embedding (len {len(values or [])})")
+        out.append(values)
+    return out
+
+
+_EMBEDDERS = {"gemini": _embed_gemini, "openai": _embed_openai, "bedrock": _embed_bedrock}
+
+
 def embed(texts) -> list:
     """Embed one or more texts with the resolved provider.
 
@@ -155,7 +205,7 @@ def embed(texts) -> list:
         texts = [texts]
     provider = resolve_provider()
     try:
-        return _embed_gemini(texts) if provider == "gemini" else _embed_openai(texts)
+        return _EMBEDDERS[provider](texts)
     except EmbeddingError:
         raise
     except Exception as exc:
@@ -163,7 +213,7 @@ def embed(texts) -> list:
                else "auto-selected from the keys present in this environment")
         raise EmbeddingError(
             f"embedding failed via {provider} "
-            f"({GEMINI_MODEL if provider == 'gemini' else OPENAI_MODEL}, {how}): "
+            f"({_MODELS[provider]}, {how}): "
             f"{exc.__class__.__name__}: {exc}"
         ) from exc
 
