@@ -53,7 +53,7 @@ from typing import Dict, List, Optional
 from .db import get_conn
 from . import boundary
 from . import projects as _projects
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 # Model calls per run, shared across the stages that name things. The tagging
 # and ageing stages are free and are not counted.
@@ -453,7 +453,7 @@ def _extract(listing: str, project: str) -> Optional[List[Dict]]:
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         return None
     try:
-        response = Anthropic().messages.create(
+        response = create_message(Anthropic(),
             model=os.environ.get("ENGRAM_DREAM_MODEL", "claude-opus-5"),
             max_tokens=8000,
             system=EXTRACT_SYSTEM,

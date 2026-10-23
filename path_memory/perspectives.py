@@ -38,7 +38,7 @@ queries that were tested, which is not the same as proven useless.
 import os
 
 from .embed import embed
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 PERSPECTIVE_LENSES = {
     "thematic": (
@@ -86,7 +86,7 @@ def _generate(lens_prompt, person, subject, body):
     """
     from anthropic import Anthropic
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    msg = client.messages.create(
+    msg = create_message(client,
         model="claude-haiku-4-5-20251001",
         max_tokens=220,
         temperature=1.0,

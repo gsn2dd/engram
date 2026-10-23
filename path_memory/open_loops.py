@@ -40,7 +40,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from .db import get_conn
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 # Model calls per run. The detector is idempotent and watermark-free — it simply
 # never re-judges a memory already in the table — so an unfinished sweep is
@@ -89,7 +89,7 @@ def _judge(subject: str, body: str) -> Optional[str]:
     try:
         from anthropic import Anthropic
         client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        msg = client.messages.create(
+        msg = create_message(client,
             model="claude-haiku-4-5-20251001",
             max_tokens=80,
             messages=[{"role": "user", "content":

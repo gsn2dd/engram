@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 NOUN_TYPES = ("person", "place", "project", "thing")
 
@@ -25,7 +25,7 @@ def classify_noun(person: Optional[str], subject: str, body: str) -> str:
             f"- thing: an idea, concept, object, or anything else\n\n"
             f"Reply with one word only."
         )
-        msg = client.messages.create(
+        msg = create_message(client,
             model="claude-haiku-4-5-20251001",
             max_tokens=5,
             messages=[{"role": "user", "content": prompt}],

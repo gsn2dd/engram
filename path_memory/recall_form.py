@@ -45,7 +45,7 @@ import os
 from typing import Optional
 
 from .db import get_conn
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 # Long enough to carry a finding with its numbers, short enough that five of
 # them are cheap. The old truncation was 220 characters of whatever came first;
@@ -109,7 +109,7 @@ def generate(subject: str, body: str, target: int = TARGET_CHARS) -> Optional[st
     try:
         from anthropic import Anthropic
         client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        msg = client.messages.create(
+        msg = create_message(client,
             model="claude-haiku-4-5-20251001",
             max_tokens=400,
             messages=[{"role": "user", "content": PROMPT.format(

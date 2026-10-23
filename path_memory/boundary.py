@@ -38,7 +38,7 @@ import os
 import sys
 from typing import Dict, List, Optional
 
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 # Below this the resolution wasn't clean enough to be worth naming: a shallow
 # cliff means the field never really separated into wall and air.
@@ -135,7 +135,7 @@ def _name_cluster(subjects: List[str], query: Optional[str]) -> Dict[str, str]:
 
     listing = "\n".join(f"- {_flatten(s)}" for s in subjects[:25] if _flatten(s))
     try:
-        response = Anthropic().messages.create(
+        response = create_message(Anthropic(),
             model=NAME_MODEL,
             # Thinking is on by default and counts against max_tokens; leave
             # headroom or the JSON truncates mid-object.

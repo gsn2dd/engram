@@ -31,7 +31,7 @@ import re
 from typing import Dict, List, Optional
 
 from . import projects
-from .llm import complete_text
+from .llm import complete_text, create_message
 
 MODEL = os.environ.get("ENGRAM_CLASSIFY_MODEL", "claude-opus-5")
 ENABLED = os.environ.get("ENGRAM_CLASSIFY", "auto").strip().lower()
@@ -143,7 +143,7 @@ def _ask_model(subject: str, body: str, active: Optional[str], candidates: List[
         f"SUBJECT: {subject}\n\nBODY:\n{(body or '')[:6000]}"
     )
     try:
-        response = Anthropic().messages.create(
+        response = create_message(Anthropic(),
             model=MODEL,
             # Thinking is on by default on this model and counts against
             # max_tokens, so leave headroom or the JSON truncates mid-object.
