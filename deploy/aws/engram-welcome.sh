@@ -27,11 +27,13 @@ printf '  service %s · embedding key %s · %s memories\n\n' \
 
 if [ "$EMBED" = "missing" ]; then
     printf '  \033[1mNothing can be stored yet — it needs an embedding key.\033[0m\n'
-    printf '  You do NOT need Claude Code, Codex or any subscription for this.\n\n'
-    printf '      \033[1mget_started\033[0m     how to set the key, with the exact commands\n\n'
+    printf '  New here? Read README.txt, or just type:\n\n'
+    printf '      \033[1mstart\033[0m           step-by-step setup, then your assistant opens\n'
+    printf '      \033[1mget_started\033[0m     the full guide (keys, agents, troubleshooting)\n\n'
 elif [ "$RUNNING" != "running" ]; then
     printf '  Service is not running:  sudo systemctl status engram\n\n'
     printf '      \033[1mget_started\033[0m     setup and troubleshooting\n\n'
 else
+    printf '      \033[1mstart\033[0m           open your assistant\n'
     printf '      \033[1mget_started\033[0m     connect an agent, capture conversations, tune it\n\n'
 fi

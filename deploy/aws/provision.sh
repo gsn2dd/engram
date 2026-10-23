@@ -157,6 +157,14 @@ install -m 0644 /tmp/engram-aliases.sh /etc/profile.d/engram-aliases.sh 2>/dev/n
 # image — the script's header explains the licensing reasoning.
 install -m 0755 /tmp/engram-claude-code.sh /usr/local/bin/install_claude_code 2>/dev/null || \
     echo "engram: claude-code installer not staged" >&2
+# `start`: the one word a first-time customer types. README.txt in the login
+# user's home says so (also in /etc/skel for users created later).
+install -m 0755 /tmp/engram-start.sh /usr/local/bin/engram-start 2>/dev/null || \
+    echo "engram: start command not staged" >&2
+if [ -f /tmp/README.txt ]; then
+    install -m 0644 /tmp/README.txt /etc/skel/README.txt
+    install -m 0644 -o ec2-user -g ec2-user /tmp/README.txt /home/ec2-user/README.txt
+fi
 
 # --------------------------------------------------------------- runtime ----
 # A wrapper rather than a long ExecStart: the bind address has to be read from

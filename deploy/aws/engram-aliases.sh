@@ -11,3 +11,6 @@
 alias get_started='engram-help'
 alias get-started='engram-help'
 alias readme='engram-help'
+# The first-time path (README.txt): one word that sets up what is missing, then
+# opens the assistant. Also what you type every day after.
+alias start='engram-start'

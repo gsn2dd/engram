@@ -118,6 +118,28 @@ frequently-needed memories stay easy to find and neglected ones fade cleanly.
 This is the direct test of the open question above — and the data that tells us
 whether anything in (1) or (2) is actually worth keeping.
 
+## Product: the agent server (AMI)
+
+**The model.** The person who owns the server logs in and types `start`. The
+assistant that opens in their **home folder is their controller**: it acts as
+them, or as their assistant, across everything on the box. Chats opened in a
+**project folder** are scoped to that project. The Unix `root` user is a
+different thing entirely: specialist admin access for developers, never the
+everyday assistant (`start` refuses to run as root).
+
+**Next: teams.** An owner can add people, e.g. employees, without sharing their
+own login:
+
+- [ ] `add_person <name>`: a separate Linux account (no sudo) with its own Claude
+      sign-in and its own project folders.
+- [ ] **Per-person memory.** Today a server has one brain and every assistant on
+      it can recall everything in it. Each memory already records who contributed
+      it; enforce it: a person's assistant recalls only their own memories, the
+      projects they belong to and whatever has been explicitly shared. The owner's
+      controller sees everything.
+- [ ] Project membership: which people may work in which project folders.
+- [ ] Sell it as the "team" option once per-person memory is enforced, not before.
+
 ## How you can help
 
 Run a brain for real, for a while, and tell us what it remembered and what it
