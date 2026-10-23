@@ -157,6 +157,36 @@ install -m 0644 /tmp/engram-aliases.sh /etc/profile.d/engram-aliases.sh 2>/dev/n
 # image — the script's header explains the licensing reasoning.
 install -m 0755 /tmp/engram-claude-code.sh /usr/local/bin/install_claude_code 2>/dev/null || \
     echo "engram: claude-code installer not staged" >&2
+# Security watch (2026-10-23): Amazon Linux pins an instance to the release it
+# was built from, so `dnf upgrade` silently stops bringing fixes. A daily check
+# writes a one-line verdict the login banner and the agent both show, and
+# `update_server` moves to the newest release with the owner's OK.
+install -m 0755 /tmp/engram-security-watch.sh /usr/local/bin/engram-security-watch 2>/dev/null || \
+    echo "engram: security watch not staged" >&2
+install -m 0755 /tmp/engram-update-server.sh /usr/local/bin/update_server 2>/dev/null || \
+    echo "engram: update_server not staged" >&2
+cat > /etc/systemd/system/engram-security-watch.service <<'UNIT'
+[Unit]
+Description=Check this server for missing security updates (engram)
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/engram-security-watch
+UNIT
+cat > /etc/systemd/system/engram-security-watch.timer <<'UNIT'
+[Unit]
+Description=Daily security-update check (engram)
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1d
+RandomizedDelaySec=1h
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable engram-security-watch.timer
+
 # `start`: the one word a first-time customer types. README.txt in the login
 # user's home says so (also in /etc/skel for users created later).
 install -m 0755 /tmp/engram-start.sh /usr/local/bin/engram-start 2>/dev/null || \

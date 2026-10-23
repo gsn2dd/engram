@@ -22,6 +22,11 @@ COUNT="$(docker exec engram psql -U pathuser -d pathmemoria -At \
          -c 'SELECT count(*) FROM memories' 2>/dev/null)"
 
 printf '\n\033[1mEngram\033[0m — a memory brain your AI agent attaches to\n'
+SEC="$(cat /var/lib/engram/security-status.txt 2>/dev/null)"
+case "$SEC" in
+    *"up to date"*|"") ;;
+    *) printf '  \033[1;31m%s\033[0m\n' "$SEC" ;;
+esac
 printf '  service %s · embedding key %s · %s memories\n\n' \
     "$RUNNING" "$EMBED" "${COUNT:-?}"
 

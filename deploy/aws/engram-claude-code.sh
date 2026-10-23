@@ -63,6 +63,22 @@ else
     echo "   ~/.claude/CLAUDE.md already exists — left untouched"
 fi
 
+echo "== +  the agent hears about missing security updates"
+# A SessionStart hook, not a line in CLAUDE.md: advisory instructions get skipped
+# under load, a hook always runs. Its output opens every chat.
+python3 - "$HOME/.claude/settings.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+s = json.load(open(p)) if os.path.exists(p) else {}
+cmd = ("cat /var/lib/engram/security-status.txt 2>/dev/null | "
+       "grep -v 'up to date' | sed 's/$/ Tell the owner at the start of this chat./' || true")
+hooks = s.setdefault("hooks", {}).setdefault("SessionStart", [])
+if not any(cmd in json.dumps(h) for h in hooks):
+    hooks.append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
+json.dump(s, open(p, "w"), indent=2)
+PY
+echo "   security status added to every chat's start"
+
 echo
 echo "Done. Sign in and go:   claude"
 echo "Try:  'remember that we picked postgres for the pilot because ...'"
