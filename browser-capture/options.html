@@ -19,13 +19,13 @@
 
   <label for="endpoint">Ingest endpoint URL</label>
   <input type="url" id="endpoint" placeholder="https://your-server.example.com/engram/ingest">
-  <div class="hint">Your engram ingest endpoint. The extension POSTs each finished exchange here.</div>
+  <div class="hint">Your engram ingest endpoint. The extension POSTs each finished exchange here. Must be https://, or http://localhost / http://127.0.0.1 for a tunnel to your server.</div>
 
   <label for="token">Bearer token</label>
   <input type="text" id="token" placeholder="a long shared secret">
 
   <label for="contributor">Contributor id</label>
-  <input type="text" id="contributor" placeholder="david">
+  <input type="text" id="contributor" placeholder="your-name (optional)">
 
   <div class="row"><input type="checkbox" id="enabled"><label for="enabled" style="margin:0;font-weight:600;">Capturing enabled</label></div>
   <div class="row"><input type="checkbox" id="debug"><label for="debug" style="margin:0;font-weight:600;">Debug (log captured exchanges to the page console)</label></div>

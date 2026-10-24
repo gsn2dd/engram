@@ -3,7 +3,7 @@
 // ingest endpoint. Shows a badge on the icon so you can SEE it working:
 //   green number = exchanges sent OK   ·   red "!" = POST failed   ·   red "cfg" = not configured.
 
-const CFG = { endpoint: '', token: '', contributor: 'david', enabled: true };
+const CFG = { endpoint: '', token: '', contributor: '', enabled: true };
 async function loadCfg() { Object.assign(CFG, await chrome.storage.sync.get(CFG)); }
 loadCfg();
 chrome.storage.onChanged.addListener(loadCfg);

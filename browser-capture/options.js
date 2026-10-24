@@ -1,6 +1,19 @@
 const FIELDS = ['endpoint', 'token', 'contributor'];
 const CHECKS = ['enabled', 'debug', 'capture_attachments'];
-const DEFAULTS = { endpoint: '', token: '', contributor: 'david', enabled: true, debug: false, capture_attachments: true };
+const DEFAULTS = { endpoint: '', token: '', contributor: '', enabled: true, debug: false, capture_attachments: true };
+
+// The manifest only allows HTTPS endpoints, or plain HTTP to this computer
+// (localhost / 127.0.0.1, e.g. an SSM tunnel to your server). Returns the
+// origin pattern to request, or throws with a message for the user.
+function endpointOrigin(endpoint) {
+  let u;
+  try { u = new URL(endpoint); } catch (e) { throw new Error('Invalid endpoint URL.'); }
+  const loopback = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && loopback)) {
+    throw new Error('Use an https:// endpoint (plain http:// is only allowed for localhost / 127.0.0.1).');
+  }
+  return u.origin + '/*';
+}
 
 chrome.storage.sync.get(DEFAULTS, (cfg) => {
   FIELDS.forEach((k) => (document.getElementById(k).value = cfg[k] || ''));
@@ -17,11 +30,10 @@ document.getElementById('save').addEventListener('click', async () => {
   const status = document.getElementById('status');
   try {
     if (cfg.endpoint) {
-      const origin = new URL(cfg.endpoint).origin + '/*';
-      const granted = await chrome.permissions.request({ origins: [origin] });
+      const granted = await chrome.permissions.request({ origins: [endpointOrigin(cfg.endpoint)] });
       if (!granted) { status.textContent = 'Permission for the endpoint was declined.'; status.style.color = '#dc2626'; return; }
     }
-  } catch (e) { status.textContent = 'Invalid endpoint URL.'; status.style.color = '#dc2626'; return; }
+  } catch (e) { status.textContent = e.message; status.style.color = '#dc2626'; return; }
 
   chrome.storage.sync.set(cfg, () => {
     status.textContent = 'Saved.'; status.style.color = '#16a34a';
@@ -33,9 +45,11 @@ document.getElementById('test').addEventListener('click', async () => {
   const s = document.getElementById('teststatus');
   const endpoint = document.getElementById('endpoint').value.trim();
   const token = document.getElementById('token').value.trim();
-  const contributor = document.getElementById('contributor').value.trim() || 'david';
+  const contributor = document.getElementById('contributor').value.trim();
   if (!endpoint) { s.textContent = 'Set the endpoint URL first.'; s.style.color = '#dc2626'; return; }
-  try { await chrome.permissions.request({ origins: [new URL(endpoint).origin + '/*'] }); } catch (e) {}
+  let origin;
+  try { origin = endpointOrigin(endpoint); } catch (e) { s.textContent = e.message; s.style.color = '#dc2626'; return; }
+  try { await chrome.permissions.request({ origins: [origin] }); } catch (e) {}
   s.textContent = 'Testing…'; s.style.color = '#888';
   try {
     const res = await fetch(endpoint, {

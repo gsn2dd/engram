@@ -18,7 +18,7 @@
 <body>
 
 <h1>Engram Capture — Privacy Policy</h1>
-<p class="updated">Last updated: 7 August 2026</p>
+<p class="updated">Last updated: 24 October 2026</p>
 
 <p><strong>Engram Capture does not collect your data. There is no Engram server,
 no account, and no third party.</strong> The extension sends your conversations
@@ -33,12 +33,16 @@ are already viewing, on these sites only:</p>
   <li><code>chatgpt.com</code></li>
   <li><code>chat.openai.com</code></li>
 </ul>
-<p>It reads the prompt and the reply, the page title, and the page URL. It does
+<p>It reads your prompt and the reply, any pasted or attached text shown with
+your prompt (you can switch that off in the options), and the page URL. It does
 not read any other site, and it injects no code anywhere else.</p>
 
 <h2>Where that text goes</h2>
-<p>To the HTTPS endpoint you configure on the extension's options page, using a
-bearer token you also supply, and nowhere else. If you configure no endpoint,
+<p>To the endpoint you configure on the extension's options page, using a
+bearer token you also supply, and nowhere else. The endpoint must be HTTPS, or
+plain HTTP to your own computer (<code>localhost</code> /
+<code>127.0.0.1</code>, for example a tunnel to your server). Chrome asks your
+permission for that one address when you save it. If you configure no endpoint,
 nothing is ever transmitted.</p>
 <p>The developer operates no collection service and receives none of your data.
 There is no analytics, no telemetry, no tracking, no advertising, and no
@@ -51,10 +55,14 @@ guarantee: treat it as a second line of defence rather than a reason to paste
 secrets into a chat window.</p>
 
 <h2>What is stored in your browser</h2>
-<p>Using <code>chrome.storage</code>, on your machine only: your endpoint URL,
-your bearer token, your contributor name, and your per-site on/off toggles. The
-<code>alarms</code> permission is used solely to retry an upload that did not
-complete before a tab closed.</p>
+<p>Your settings — endpoint URL, bearer token, contributor name and on/off
+switches — are kept in <code>chrome.storage.sync</code>. If you have Chrome Sync
+turned on, Chrome copies them to your other signed-in browsers through your
+Google account, as it does for any extension's settings; the developer never
+sees them. Exchanges that could not be delivered (for example while your server
+is offline) wait in <code>chrome.storage.local</code> on this computer, up to
+the 500 most recent, and are retried every two minutes using the
+<code>alarms</code> permission. They are removed once delivered.</p>
 
 <h2>Data sharing and sale</h2>
 <ul>

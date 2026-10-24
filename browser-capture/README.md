@@ -8,8 +8,14 @@ recallable, cross-agent history as everything else — and you can look back to 
 Manifest V3, Chrome/Edge/Brave. Nothing leaves the browser except a POST to the ingest
 endpoint **you** configure (your server). Secrets are redacted in-browser first.
 
-## Install (unpacked, for now)
-1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** → pick this folder.
+## Install
+From the Chrome Web Store once it is published (submission steps: `STORE_LISTING.md`).
+Until then, load it unpacked. Keep the folder somewhere permanent, because Chrome
+drops an unpacked extension if its folder moves (see "Keep it installed meanwhile"
+in `STORE_LISTING.md`):
+
+1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** → pick this folder
+   (or an unzipped `dist/engram-capture-<version>.zip`).
 2. Click the extension → **Options**: set your **ingest endpoint URL**, a **bearer token**,
    your **contributor id** (e.g. `david`), tick **Capturing enabled**. Approve the endpoint
    permission prompt.
@@ -38,6 +44,11 @@ inlining it → embeds (Gemini) → `remember(...)` into engram with `tier=trans
 `contributor`, `source`, `url`, and the **original `captured_at` timestamp**. Recall keeps
 `tier=transcript` out of default results (opt in with `--full`) so the firehose never dilutes
 curated memory. Contract is above; see `../../worldtownguide/docs/TRANSCRIPT_ARCHIVE_DESIGN.md`.
+
+## Releasing
+`python3 tools/build_zip.py` builds `dist/engram-capture-<version>.zip` with only the files the
+extension runs. `python3 tools/cws_publish.py release` uploads it to the Chrome Web Store and
+submits it for review (credentials from SSM; one-time setup in `STORE_LISTING.md`).
 
 ## Tuning the DOM extraction
 `capture.js` has one `EXTRACTORS` map — the only thing you should need to edit. claude.ai and

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Engram Capture",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Auto-capture your claude.ai and ChatGPT conversations into your self-hosted engram memory.",
   "permissions": [
     "storage",
@@ -9,7 +9,8 @@
   ],
   "optional_host_permissions": [
     "https://*/*",
-    "http://*/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "host_permissions": [
     "https://claude.ai/*",
@@ -35,7 +36,7 @@
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "Engram Capture \u2014 click for options",
+    "default_title": "Engram Capture — click for options",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -46,5 +47,6 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "homepage_url": "https://github.com/gsn2dd/engram"
 }
