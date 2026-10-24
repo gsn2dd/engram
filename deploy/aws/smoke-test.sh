@@ -129,6 +129,35 @@ for port in 8080 8081; do
     fi
 done
 
+# Marketplace-style: the ONLY thing allowed beyond loopback is sshd on 22 (the
+# security group, not the box, decides whether 22 is reachable at all).
+public="$(ss -ltnH 2>/dev/null | awk '{print $4}' \
+          | grep -vE '^(127\.[0-9.]+|\[::1\]|::1):[0-9]+$' \
+          | grep -vE ':22$' || true)"
+[ -z "$public" ] && ok "nothing but sshd listens beyond loopback" \
+                 || bad "listening beyond loopback: $(echo $public)"
+
+echo
+echo "-- security watch (built 2026-10-23)"
+
+echo "  ---   OS release: $(rpm -q --qf '%{VERSION}' system-release)"
+systemctl is-enabled --quiet engram-security-watch.timer
+check $? "engram-security-watch.timer is enabled"
+for cmd in engram-security-watch update_server engram-start; do
+    [ -x "/usr/local/bin/${cmd}" ] && ok "${cmd} is installed" || bad "${cmd} missing"
+done
+[ -s /home/ec2-user/README.txt ] && ok "README.txt in the login user's home" \
+                                 || bad "no README.txt in /home/ec2-user"
+/usr/local/bin/engram-security-watch >/dev/null 2>&1
+echo "  ---   $(cat /var/lib/engram/security-status.txt 2>/dev/null)"
+sw="$(cat /var/lib/engram/security-status.json 2>/dev/null)"
+crit="$(printf '%s' "$sw" | jq -r .critical 2>/dev/null)"
+imp="$(printf '%s' "$sw" | jq -r .important 2>/dev/null)"
+rb="$(printf '%s' "$sw" | jq -r .reboot_needed 2>/dev/null)"
+[ "$crit" = "0" ] && [ "$imp" = "0" ] && [ "$rb" = "no" ] \
+    && ok "security watch reports 0 critical, 0 important, no reboot pending" \
+    || bad "security watch: critical=${crit} important=${imp} reboot=${rb}"
+
 echo
 echo "-- ingest endpoint"
 
@@ -229,6 +258,23 @@ echo "-- image hygiene"
 
 grep -qs '^PasswordAuthentication no' /etc/ssh/sshd_config.d/60-engram-hardening.conf
 check $? "password authentication is disabled"
+
+# The effective config, not just our drop-in: an earlier-sorting file could
+# still win.
+eff="$(sshd -T 2>/dev/null)"
+echo "$eff" | grep -qx 'passwordauthentication no'
+check $? "sshd effective config: passwordauthentication no"
+echo "$eff" | grep -qx 'permitrootlogin no'
+check $? "sshd effective config: permitrootlogin no"
+
+[ -s /root/.ssh/authorized_keys ] && bad "root has authorized_keys baked in" \
+                                  || ok "no root authorized_keys"
+# Baked secrets: nothing key-shaped anywhere a snapshot would carry it over.
+baked="$(grep -rlsE 'BEGIN (OPENSSH|RSA|EC) PRIVATE KEY|AKIA[0-9A-Z]{16}|sk-ant-' \
+         /root /home /etc/engram /usr/local/bin 2>/dev/null \
+         | grep -v '^/home/ec2-user/.claude' || true)"
+[ -z "$baked" ] && ok "no private keys or API keys baked into the image" \
+                || bad "key-shaped content in: $(echo $baked)"
 
 echo
 echo "=== ${PASS} passed, ${FAIL} failed"

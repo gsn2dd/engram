@@ -24,8 +24,14 @@ exec > >(tee -a "$LOG") 2>&1
 echo "=== engram provision starting $(date -u +%FT%TZ) — image ${ENGRAM_IMAGE}"
 
 # ---------------------------------------------------------------- packages ---
-dnf -y update
-dnf -y install docker jq
+# --releasever=latest, not a plain update: AL2023 pins an instance to the
+# release of its base AMI, so if Amazon ships a release between the SSM
+# parameter's AMI and this build, a plain update would quietly miss it. The
+# image must leave the factory with the security watch reading 0 pending.
+dnf -y upgrade --releasever=latest
+# dnf-utils provides needs-restarting, which the security watch uses to tell a
+# pending reboot; without it every check would report "reboot needed".
+dnf -y install docker jq dnf-utils
 systemctl enable docker
 systemctl start docker
 
@@ -45,6 +51,7 @@ cat > /etc/engram/build-info <<EOF
 image=${ENGRAM_IMAGE}
 built_at=$(date -u +%FT%TZ)
 base=amazon-linux-2023
+os_release=$(rpm -q --qf '%{VERSION}' system-release)
 EOF
 chmod 0644 /etc/engram/build-info
 
