@@ -192,10 +192,75 @@ def _cli_create(model=None, messages=(), system=None, output_config=None, **_ign
                content=[_NS(type="text", text=text)], via="claude-cli")
 
 
+# ---------------------------------------------------------------------------
+# Bedrock first, when a spending guard is configured (2026-10-28).
+#
+# An engram that runs under an agent harness may point ENGRAM_BEDROCK_GUARD at
+# the folder holding the harness's `bedrock_guard` package (caps, ledger, kill
+# switch). Then every background call goes: Bedrock (the guard's background
+# model, whatever model the caller named) -> the subscription CLI -> the
+# caller's own no-model fallback. The API key route is not used at all: the
+# harness owner's rule is that the box's routine runs on the subscription, with
+# Bedrock under hard caps. Without the variable nothing below changes.
+# ---------------------------------------------------------------------------
+_guard_mod = None
+
+
+def _guard():
+    global _guard_mod
+    lib = _os.environ.get("ENGRAM_BEDROCK_GUARD")
+    if not lib:
+        return None
+    if _guard_mod is None:
+        if lib not in _sys.path:
+            _sys.path.insert(0, lib)
+        try:
+            import bedrock_guard
+            _guard_mod = bedrock_guard
+        except Exception as e:
+            print(f"[engram] ENGRAM_BEDROCK_GUARD set but not importable: {e}", file=_sys.stderr)
+            _guard_mod = False
+    return _guard_mod or None
+
+
+def _as_response(d):
+    return _NS(stop_reason=d.get("stop_reason"), via="bedrock",
+               content=[_NS(**{k: v for k, v in b.items()}) for b in d.get("content") or []])
+
+
+def _bedrock_create(g, caller, model=None, messages=(), max_tokens=1024, system=None,
+                    temperature=None, output_config=None, **_ignored):
+    return _as_response(g.invoke(caller=caller, messages=list(messages), max_tokens=max_tokens,
+                                 system=system, temperature=temperature,
+                                 output_config=output_config))
+
+
+def _caller_name():
+    # the engram module that asked, for the ledger: engram:dream, engram:open_loops ...
+    f = _sys._getframe(2)
+    return "engram:" + _os.path.splitext(_os.path.basename(f.f_code.co_filename))[0]
+
+
+def available() -> bool:
+    """True when some route can answer: an API key, or the Bedrock guard."""
+    return bool(_os.environ.get("ANTHROPIC_API_KEY") or _os.environ.get("ANTHROPIC_AUTH_TOKEN")
+                or _guard())
+
+
 def create_message(client=None, **kwargs):
     """client.messages.create(**kwargs), falling back to the subscription CLI
-    when the API account is out of credit. Use in place of the direct call."""
+    when the API account is out of credit. Use in place of the direct call.
+    With ENGRAM_BEDROCK_GUARD set: Bedrock (guarded) -> subscription CLI, no API."""
     global _api_out_of_credit
+    g = _guard()
+    if g is not None:
+        caller = _caller_name()
+        try:
+            return _bedrock_create(g, caller, **kwargs)
+        except Exception as e:
+            print(f"[engram] Bedrock not used for {caller} ({e.__class__.__name__}: "
+                  f"{str(e)[:160]}) — trying the subscription CLI", file=_sys.stderr)
+        return _cli_create(**kwargs)
     if not _api_out_of_credit:
         try:
             if client is None:
